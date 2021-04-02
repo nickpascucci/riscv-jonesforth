@@ -1,5 +1,7 @@
 	.set JONES_VERSION,00
 
+	.set UART0_BASE_ADDR,0x10013000
+
     /*
     REGISTER MAPPING
 
@@ -24,9 +26,9 @@
 
     | x86 | RISCV | Purpose              |
     |-----+-------+----------------------|
-    | eax | t0    |                      |
-    | esi | t1    | Instruction pointer  |
-    | ebp | fp    | Return stack pointer |
+    | eax | t0    | General purpose      |
+    | esi | gp    | Instruction pointer  |
+    | ebp | tp    | Return stack pointer |
     | esp | sp    | Data stack pointer   |
     */
 
@@ -45,40 +47,40 @@
     This may be optimizable in the future. */
 
     .macro NEXT
-	lw t0, 0(t1)                /* Load the jump target into t0. */
-	addi t1, t1, 4              /* Increment t1, emulating LODSL to point to next word */
+	lw t0, 0(gp)                /* Load the jump target into t0. */
+	addi gp, gp, 4              /* Increment gp, emulating LODSL to point to next word */
 	/* These next two lines emulate the instruction jmp *(%eax) at jonesforth.s:308 */
 	lw t0, 0(t0)                /* Read the codeword of next target for indirect jump */
     jalr x0, 0(t0)              /* Jump to the codeword pointed to by t0 */
     .endm
 
     .macro PUSHRSP reg
-	addi fp, fp, -4             /* Move the stack pointer up a slot */
-    sw \reg, 0(fp)              /* Store the register value into the newly allocated spot */
+	addi tp, tp, -4             /* Move the return stack pointer up a slot */
+    sw \reg, 0(tp)              /* Store the register value into the newly allocated spot */
     .endm
 
     .macro POPRSP reg
-    lw \reg, 0(fp)              /* Load the item on the top of the stack into reg */
-	addi fp, fp, 4              /* Move the stack pointer one slot down */
+    lw \reg, 0(tp)              /* Load the item on the top of the stack into reg */
+	addi tp, tp, 4              /* Move the return stack pointer one slot down */
     .endm
 
     .text
     .align 4
 
 DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
-    PUSHRSP t1         /* Push addr of executing instruction onto the r stack */
+    PUSHRSP gp         /* Push addr of executing instruction onto the r stack */
     addi t0, t0, 4     /* Advance t0 to point to first instruction in word */
-    lw t1, t0          /* t1's NEXT's working register; point it at that word */
+    lw gp, t0          /* gp's NEXT's working register; point it at that word */
     NEXT
 
     .text
     .global _start
 _start:
 	/* We use a fixed address space, unlike Jonesforth, so we don't need to load the DSP */
-    la fp, return_stack_top     /* Load return stack address into frame pointer */
+    la tp, return_stack_top     /* Load return stack address into frame pointer */
 	call set_up_data_segment
 
-    lw t1, cold_start           /* Get ready... */
+    lw gp, cold_start           /* Get ready... */
     NEXT                        /* Interpret! */
 
 cold_start:                     /* Startup: jump to QUIT */
@@ -144,9 +146,9 @@ code_\label :
 
     defcode "SWAP",4,,SWAP,DROP
 	pop t0
-    pop t2
+    pop t1
     push t0
-    push t2
+    push t1
     NEXT
 
 	defcode "DUP",3,,DUP,SWAP
@@ -161,54 +163,54 @@ code_\label :
 
     /* TODO Implement remaining core words */
     defcode "EXIT",4,,EXIT,OVER /* TODO Update the previous link when new words are added */
-    POPRSP t1
+    POPRSP gp
     NEXT
 
     defcode "LIT",3,,LIT,EXIT
-	lw t0, 0(t1)
-	addi t1, t1, 4
+	lw t0, 0(gp)
+	addi gp, gp, 4
     push t0
     NEXT
 
     defcode "!",1,,STORE,LIT
-	pop t2                      /* Address to store into */
+	pop t1                      /* Address to store into */
     pop t0                      /* Value to store */
-    sw t0, 0(t2)
+    sw t0, 0(t1)
     NEXT
 
     defcode "@",1,,FETCH,STORE
-	pop t2                      /* Address to fetch */
-    lw t0, 0(t2)                /* Read into t0 */
+	pop t1                      /* Address to fetch */
+    lw t0, 0(t1)                /* Read into t0 */
     push t0                     /* Store value onto the stack */
     NEXT
 
     defcode "+!",2,,ADDSTORE,FETCH
-	pop t2                      /* Address to add to */
+	pop t1                      /* Address to add to */
     pop t0                      /* Amount to add */
 	/* RISC-V does not have an 'addl' equivalent, so we need to expand it. */
-	lw t3, 0(t2)                /* Read the value */
+	lw t3, 0(t1)                /* Read the value */
     add t3, t0, t3              /* Do the add */
-    sw t3, 0(t2)                /* Write it back */
+    sw t3, 0(t1)                /* Write it back */
     NEXT
 
 	defcode "-!",2,,SUBSTORE,ADDSTORE
-	pop t2                      /* Address to subtract to */
+	pop t1                      /* Address to subtract to */
     pop t0                      /* Amount to subtract */
-	lw t3, 0(t2)                /* Read the value */
+	lw t3, 0(t1)                /* Read the value */
     sub t3, t0, t3              /* Do the subtraction */
-    sw t3, 0(t2)                /* Write it back */
+    sw t3, 0(t1)                /* Write it back */
     NEXT
 
     defcode "C!",2,,STOREBYTE,SUBSTORE
-	pop t2                      /* Address to store into */
+	pop t1                      /* Address to store into */
     pop t0                      /* Data to store there */
-    sb t0, 0(t2)
+    sb t0, 0(t1)
     NEXT
 
     defcode "C@",2,,FETCHBYTE,STOREBYTE
-	pop t2                      /* Address to store into */
+	pop t1                      /* Address to store into */
     lw x0, t0                   /* Clear t0 */
-	lb t0, t2                   /* Fetch the byte from memory */
+	lb t0, t1                   /* Fetch the byte from memory */
     push t0                     /* Push it onto the stack */
     NEXT
 
@@ -263,7 +265,148 @@ var_\name:
 
 	/* TODO Implement return stack pieces */
 
+	/*************************/
+    /** Input and Output    **/
+    /*************************/
 
+	/* TODO Allow the user to read from either UART0 or UART1 */
+	/* TODO Provide KEY? and EMIT? */
+    defcode "KEY",3,,KEY,__F_LENMASK
+	call _KEY
+	push a0
+	NEXT
+
+	/* Read a byte from UART0 and return it in t0 */
+_KEY:
+	li t1, UART0_BASE_ADDR      /* First, load the UART0 address */
+1:
+	lw t3, 0x4(t1)              /* Read the rxdata register */
+	/* Bit 31 indicates rx empty. If set, value is negative. */
+	bltz t3, 1b                 /* If we have no data, loop until there is some. */
+	andi a0, t3, 0xFF           /* Mask out just the received byte */
+    ret                         /* We have valid data so return it. */
+
+    defcode "EMIT",4,,EMIT,KEY
+    li t1, UART0_BASE_ADDR      /* First, load the UART0 address */
+    pop t0                      /* Get the character to write */
+1:
+    lw t3, 0(t1)                /* Read the txdata register. This gives 0 if we can write. */
+	bnez t3, 1b                 /* If the queue is full, loop until we can send. */
+    sw t0, 0(t1)                /* Write it to the serial output*/
+    NEXT
+
+	defcode "WORD",4,,WORD,EMIT
+	call _WORD
+    push a0                     /* Base address of buffer */
+    push a1                     /* Length of word */
+    NEXT
+
+_WORD:
+1:                              /* Find first non-blank char skipping comments */
+    call _KEY
+	li t1, '\\'                 /* Compare to comment character and skip if needed */
+    beq a0, t1, 3f
+	li t1, ' '                  /* Skip whitespace */
+    beq a0, t1, 1b
+
+    la s1, word_buffer          /* Load word buffer base address into s1 (preserved by _KEY) */
+
+2:
+	sb a0, 0(s1)                /* Write the byte into the buffer */
+    addi s1, s1, 1              /* Bump the address by 1 byte (stosb does this automatically) */
+	call _KEY
+    li t1, ' '                  /* Break on whitespace */
+    bne a0, t1, 2b
+
+    la a0, word_buffer
+    sub a1, s1, a0              /* Find the length of the word and return it */
+	ret
+
+3:                              /* Skip comments to end of line */
+    call _KEY
+    li t1, '\n'                 /* Check whether character is end of line*/
+    bne a0, t1, 3b              /* If not, go again */
+    beq a0, t1, 1b              /* If it is, return to reading word */
+
+	.data                       /* Must go in RAM */
+word_buffer:
+    .space 32
+
+
+    defcode "NUMBER",6,,NUMBER,WORD
+	/* TODO Implement NUMBER */
+    NEXT
+
+    defcode "FIND",4,,FIND,NUMBER
+	pop a0                      /* Length */
+	pop a1                      /* Address */
+    call _FIND
+	push a0                     /* Address of entry */
+    NEXT
+
+_FIND:
+    la t0, var_LATEST           /* Address of last word in dictionary */
+1:
+    beqz t0, 4f                 /* If the pointer in t0 is null, we're at dict's end */
+	/* Compare length of word */
+	lw t1, x0
+	lb t1, 4(t0)                /* Length field and flags */
+    and t1, t1, (F_HIDDEN|F_LENMASK) /* Extract just name length (and hidden bit) */
+	bne a0, t1, 3f                   /* If the length doesn't match, go around again */
+
+	/* RISC-V does not have an instruction like repe, so we'll need to write it. */
+	mv t2, a0                   /* Copy the length we were given */
+	mv t3, a1                   /* Copy the address of the target string */
+    lw t4, 5(t0)                /* Load starting address of dictionary name */
+
+2:                              /* String comparison loop: */
+	lw t5, 0(t3)                /* What is the next character in the target? */
+    lw t6, 0(t4)                /* What is the next character in the dictionary? */
+    bne t5, t6, 3f              /* If they are not the same, bail. */
+	addi t2, t2, -1             /* Decrement count */
+    addi t3, t3, 1              /* Advance target pointer */
+    addi t4, t4, 1              /* Advance dict pointer */
+	bnez t2, 2b                 /* If we have characters remaining, go check them... */
+
+    mv a0, t0                   /* ... Else return the address! All chars match. */
+	ret
+
+3:                              /* If we find a mismatch... */
+    lw t0, 0(t0)                /* Follow link field to next item */
+    j 1b                        /* and go check it for compatibility */
+
+4:                              /* Item not found! */
+	lw a0, x0                   /* Return 0 */
+
+
+	defcode ">CFA",4,,TCFA,FIND
+	pop a0                      /* Address of dictionary entry */
+	call _TCFA
+    push a0
+    NEXT
+
+_TCFA:
+	addi a0, a0, 4              /* Skip ahead over link pointer */
+	lw t0, x0                   /* Zero out temporary */
+    lb t0, 0(a0)                /* Get the length and flags byte */
+    addi a0, a0, 1              /* Skip over that byte */
+	and t0, t0, (F_LENMASK)     /* Extract length */
+    add a0, a0, t0              /* Skip over the name */
+    addi a0, a0, 3              /* Add padding for alignment: codeword is 4-byte aligned */
+    andi a0, a0, ~3             /* Mask out lower two bits */
+	ret
+
+    defword ">DFA",4,,TDFA,TCFA
+	/* TODO Implement TDFA */
+    .int EXIT
+
+    /*****************/
+    /** Compilation **/
+    /*****************/
+
+    defcode "CREATE",6,,CREATE,TDFA
+	/* TODO Define CREATE */
+    NEXT
 
     /*****************************************/
     /** Stacks and fixed memory allocations **/
