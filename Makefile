@@ -7,6 +7,9 @@
 	riscv32-as --march=rv32imac -mabi=ilp32 -g -o $@ $<
 
 inspect: ${PROGRAM}.o
+	riscv32-objdump --source $<
+
+inspectall: ${PROGRAM}.o
 	riscv32-objdump --source -j .text -j .rodata -j .bss $<
 
 simulate: ${PROGRAM}.elf
