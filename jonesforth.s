@@ -1,4 +1,4 @@
-	.set VERSION,00
+	.set JONES_VERSION,00
 
     /*
     REGISTER MAPPING
@@ -25,10 +25,12 @@
     | x86 | RISCV | Purpose              |
     |-----+-------+----------------------|
     | eax | t0    |                      |
-    | esi | t1    |                      |
+    | esi | t1    | Instruction pointer  |
     | ebp | fp    | Return stack pointer |
     | esp | sp    | Data stack pointer   |
     */
+
+    /* TODO Investigate using compressed instruction set */
 
     /*
     NEXT macro. Already we vary from Jonesforth slightly. There is not an
@@ -72,28 +74,12 @@ DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
     .text
     .global _start
 _start:
-	/* Memory layout:
-
-    We have 16KiB of memory to work with. By default, Jonesforth allocates 64 KiB :)
-
-    - Assembly builtin words are stored into the nonvolatile flash memory.
-    - The "data segment" goes into RAM, starting at 0x8000_0000. We need two regions:
-	- Our return stack, which grows downwards into RAM from its start address.
-    - The data stack, which grows upwards into RAM starting where the return stack ends.
-
-    We'll restrict the return and data stacks to 512 bytes each. The user
-	dictionary will start after the data stack.
-
-    TODO The E310 supports hardware memory protection. I should use that to
-	implement a canary region to protect the data segment from being overwritten
-	by the data stack, and vice-versa for the end of memory.
-    */
-	lw sp, var_S0
-    lw fp, return_stack_size
+	/* We use a fixed address space, unlike Jonesforth, so we don't need to load the DSP */
+    la fp, return_stack_top     /* Load return stack address into frame pointer */
 	call set_up_data_segment
 
-    lw t1, cold_start
-    NEXT
+    lw t1, cold_start           /* Get ready... */
+    NEXT                        /* Interpret! */
 
 cold_start:                     /* Startup: jump to QUIT */
     .int QUIT
@@ -139,6 +125,7 @@ code_\label :
 	/* Assembly code follows; must end with NEXT */
     .endm
 
+	/* TODO What should the order of operations be for push/pop? */
 	/* Pop a value from the top of the stack into a register */
 	.macro pop reg
 	lw \reg, 0(sp)
@@ -152,7 +139,7 @@ code_\label :
     .endm
 
 	defcode "DROP",4,,DROP,link_base
-	addi sp, sp, -4
+	addi sp, sp, -4             /* Just move the stack pointer back a cell */
     NEXT
 
     defcode "SWAP",4,,SWAP,DROP
@@ -167,13 +154,146 @@ code_\label :
     push t0
     NEXT
 
+	defcode "OVER",4,,OVER,DUP
+    lw t0, 4(sp)
+    push t0
+    NEXT
+
+    /* TODO Implement remaining core words */
+    defcode "EXIT",4,,EXIT,OVER /* TODO Update the previous link when new words are added */
+    POPRSP t1
+    NEXT
+
+    defcode "LIT",3,,LIT,EXIT
+	lw t0, 0(t1)
+	addi t1, t1, 4
+    push t0
+    NEXT
+
+    defcode "!",1,,STORE,LIT
+	pop t2                      /* Address to store into */
+    pop t0                      /* Value to store */
+    sw t0, 0(t2)
+    NEXT
+
+    defcode "@",1,,FETCH,STORE
+	pop t2                      /* Address to fetch */
+    lw t0, 0(t2)                /* Read into t0 */
+    push t0                     /* Store value onto the stack */
+    NEXT
+
+    defcode "+!",2,,ADDSTORE,FETCH
+	pop t2                      /* Address to add to */
+    pop t0                      /* Amount to add */
+	/* RISC-V does not have an 'addl' equivalent, so we need to expand it. */
+	lw t3, 0(t2)                /* Read the value */
+    add t3, t0, t3              /* Do the add */
+    sw t3, 0(t2)                /* Write it back */
+    NEXT
+
+	defcode "-!",2,,SUBSTORE,ADDSTORE
+	pop t2                      /* Address to subtract to */
+    pop t0                      /* Amount to subtract */
+	lw t3, 0(t2)                /* Read the value */
+    sub t3, t0, t3              /* Do the subtraction */
+    sw t3, 0(t2)                /* Write it back */
+    NEXT
+
+    defcode "C!",2,,STOREBYTE,SUBSTORE
+	pop t2                      /* Address to store into */
+    pop t0                      /* Data to store there */
+    sb t0, 0(t2)
+    NEXT
+
+    defcode "C@",2,,FETCHBYTE,STOREBYTE
+	pop t2                      /* Address to store into */
+    lw x0, t0                   /* Clear t0 */
+	lb t0, t2                   /* Fetch the byte from memory */
+    push t0                     /* Push it onto the stack */
+    NEXT
+
+	defcode "C@C!",4,,CCOPY,FETCHBYTE
+	/* TODO */
+    NEXT
+
+	defcode "CMOVE",5,,CMOVE,CCOPY
+	/* TODO */
+    NEXT
+
+    .macro defvar name, namelen, flags=0, label, prev, initial=0
+    defcode \name, \namelen, \flags, \label
+	la t0, var_\name
+    push t0
+    NEXT
+    .data
+    .align 4
+var_\name:
+    .int \initial
+	.endm
+
+	defvar "STATE",5,,STATE,CCOPY
+    defvar "HERE",4,,HERE,STATE
+    /* defvar "LATEST",6,,LATEST,  /\* NOTE: Must point to last word in builtin dict *\/ */
+	defvar "S0",4,,SZ,HERE,data_stack_top
+    defvar "BASE",4,,BASE,10
+
+	/* Define a constant with an immediate value */
+    .macro defconsti name, namelen, flags=0, label, prev, value
+	defcode \name, \namelen, \flags, \label, \prev
+	li t0, \value
+	push t0
+    .endm
+
+	/* Define a constant with an address value */
+    .macro defconsta name, namelen, flags=0, label, prev, value
+	defcode \name, \namelen, \flags, \label, \prev
+	la t0, \value
+	push t0
+    .endm
+
+
+    defconsti "VERSION",7,,VERSION,BASE,JONES_VERSION
+    defconsta "R0",2,,RZ,VERSION,return_stack_top
+	defconsta "DOCOLO",5,,__DOCOL,RZ,DOCOL
+	defconsti "F_IMMED",7,,__F_IMMED,__DOCOL,F_IMMED
+	defconsti "F_HIDDEN",8,,__F_HIDDEN,__F_IMMED,F_HIDDEN
+	defconsti "F_LENMASK",9,,__F_LENMASK,__F_HIDDEN,F_LENMASK
+
+    /* We omit the Linux system call bits here. */
+
+	/* TODO Implement return stack pieces */
+
+
+
+    /*****************************************/
+    /** Stacks and fixed memory allocations **/
+    /*****************************************/
+
 	.text
     .set RETURN_STACK_SIZE, 512
     .set DATA_STACK_SIZE, 512
 
 set_up_data_segment:
-    /* TODO Set up data stack */
+	/* Memory layout:
 
+    We have 16KiB of memory to work with. By default, Jonesforth allocates 64 KiB :)
+
+    - Assembly builtin words are stored into the nonvolatile flash memory.
+    - The "data segment" goes into RAM, starting at 0x8000_0000. We need two regions:
+	- Our return stack, which grows downwards into RAM from its start address.
+    - The data stack, which grows upwards into RAM starting where the return stack ends.
+
+    We'll restrict the return and data stacks to 512 bytes each. The user
+	dictionary will start after the data stack. Unlike the original Jonesforth,
+	we are running on bare metal and can't dynamically allocate more memory if
+	we run out. Also unlike the original, this Forth will not use a buffer to
+	store input as we have direct access to the hardware. Instead, we will read
+	from the serial input registers. See KEY, above.
+
+    TODO The E310 supports hardware memory protection. I should use that to
+	implement a canary region to protect the data segment from being overwritten
+	by the data stack, and vice-versa for the end of memory.
+    */
 
 	/********************/
     /** Welcome to RAM **/
@@ -182,8 +302,8 @@ set_up_data_segment:
 	.bss
     /* Forth return stack */
     .align 4
-return_stack:                   /* Initial top of return stack */
+return_stack:
     .space RETURN_STACK_SIZE
-data_stack_top:                 /* Also initial top of data stack. */
-    /* (They grow in opposite directions.) */
+return_stack_top:               /* Initial top of return stack. Grows down. */
+data_stack_top:                 /* Also initial top of data stack. Grows up. */
     .space RETURN_STACK_SIZE
