@@ -6,6 +6,9 @@
 %.o: %.s
 	riscv32-as --march=rv32imac -mabi=ilp32 -g -o $@ $<
 
+%.hex: %.elf
+	riscv32-objcopy $@ -O ihex $<
+
 inspect: ${PROGRAM}.elf
 	riscv32-objdump --source $<
 
