@@ -10,7 +10,7 @@ inspect: ${PROGRAM}.elf
 	riscv32-objdump --source $<
 
 inspectall: ${PROGRAM}.elf
-	riscv32-objdump --source -j .text -j .rodata -j .bss $<
+	riscv32-objdump --source -j .text -j .rodata -j .bss -j .data $<
 
 simulate: ${PROGRAM}.elf
 	@echo "Running ${PROGRAM} in QEMU"

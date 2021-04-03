@@ -1,4 +1,4 @@
-	.set JONES_VERSION,00
+	.set JONES_VERSION,01
 
 	.set UART0_BASE_ADDR,0x10013000
 
@@ -65,7 +65,7 @@
     .endm
 
     .text
-    .align 4
+    .p2align 2
 
     .text
     .global _start
@@ -90,13 +90,13 @@ cold_start:                     /* Startup: jump to QUIT */
 	/* Define a Forth word with high-level components */
     .macro defword name, namelen, flags=0, label, prev
     .section .rodata
-    .align 4
+    .p2align 2
     .global name_\label
 name_\label :
     .int name_\prev             /* Link to previous word */
     .byte \flags+\namelen
     .ascii "\name"
-    .align 4
+    .p2align 2
     .global \label
 \label :
     .int DOCOL
@@ -113,13 +113,13 @@ DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
 	/* Define a Forth word with assembly implementation */
 	.macro defcode name, namelen, flags=0, label, prev
 	.section .rodata
-    .align 4
+    .p2align 2
 	/* .global name_\label */
 name_\label :
     .int name_\prev
     .byte \flags+\namelen
     .ascii "\name"
-    .align 4
+    .p2align 2
     /* .global \label */
 \label :
     .int code_\label
@@ -230,16 +230,17 @@ code_\label :
     push t0
     NEXT
     .data
-    .align 4
+    .p2align 2
 var_\name:
     .int \initial
 	.endm
 
-	defvar "STATE",5,,STATE,CCOPY
-    defvar "HERE",4,,HERE,STATE,data_region_start
-    defvar "LATEST",6,,LATEST,INTERPRET  /* NOTE: Must point to last word in builtin dict */
-	defvar "S0",4,,SZ,LATEST,data_stack_top
-    defvar "BASE",4,,BASE,SZ,10
+	defvar "STATE", 5,,STATE, CCOPY
+    defvar "HERE",  4,,HERE,  STATE, data_region_start
+	/* NOTE: Must point to last word in builtin dict */
+    defvar "LATEST",6,,LATEST,HERE,  name_INTERPRET
+	defvar "S0",    4,,SZ,    LATEST,data_stack_top
+    defvar "BASE",  4,,BASE,  SZ,    10
 
 	/* Define a constant with an immediate value */
     .macro defconsti name, namelen, flags=0, label, prev, value
@@ -331,30 +332,38 @@ _KEY:
 
 _WORD:
 1:                              /* Find first non-blank char skipping comments */
+	mv s2, ra
     call _KEY
+	mv ra, s2
 	li t1, '\\'                 /* Compare to comment character and skip if needed */
     beq a0, t1, 3f
 	li t1, ' '                  /* Skip whitespace */
-    beq a0, t1, 1b
+    ble a0, t1, 1b
 
     la s1, word_buffer          /* Load word buffer base address into s1 (preserved by _KEY) */
 
 2:
 	sb a0, 0(s1)                /* Write the byte into the buffer */
     addi s1, s1, 1              /* Bump the address by 1 byte (stosb does this automatically) */
+    mv s2, ra
 	call _KEY
-    li t1, ' '                  /* Break on whitespace */
-    bne a0, t1, 2b
+    mv ra, s2
+    li t1, ' '                  /* Continue on whitespace, otherwise loop back */
+    bgt a0, t1, 2b
 
     la a0, word_buffer
     sub a1, s1, a0              /* Find the length of the word and return it */
 	ret
 
 3:                              /* Skip comments to end of line */
+    mv s2, ra
     call _KEY
-    li t1, '\n'                 /* Check whether character is end of line*/
-    bne a0, t1, 3b              /* If not, go again */
+	mv ra, s2
+    li t1, '\n'                 /* Check whether character is a linefeed */
     beq a0, t1, 1b              /* If it is, return to reading word */
+    li t1, '\r'                 /* Check whether character is a carriage return*/
+    beq a0, t1, 1b              /* If it is, return to reading word */
+    j 3b                        /* If neither, go again */
 
 	.data                       /* Must go in RAM */
 word_buffer:
@@ -377,27 +386,30 @@ _NUMBER:
 	push a0                     /* Address of entry */
     NEXT
 
+	/* In: a0 = address of buffer, a1 = length of word */
 _FIND:
-    la t0, var_LATEST           /* Address of last word in dictionary */
+    lw t0, var_LATEST           /* Address of last word in dictionary */
 1:
     beqz t0, 4f                 /* If the pointer in t0 is null, we're at dict's end */
 	/* Compare length of word */
 	mv t1, x0
 	lb t1, 4(t0)                /* Length field and flags */
     and t1, t1, (F_HIDDEN|F_LENMASK) /* Extract just name length (and hidden bit) */
-	bne a0, t1, 3f                   /* If the length doesn't match, go around again */
+	bne a1, t1, 3f                   /* If the length doesn't match, go around again */
 
 	/* RISC-V does not have an instruction like repe, so we'll need to write it. */
-	mv t2, a0                   /* Copy the length we were given */
-	mv t3, a1                   /* Copy the address of the target string */
-    lw t4, 5(t0)                /* Load starting address of dictionary name */
+	mv t2, a1                   /* Copy the length we were given */
+	mv t3, a0                   /* Copy the address of the goal string */
+    addi t4, t0, 5              /* Get starting address of dictionary name (4b addr + 1b len) */
+	mv t5, x0                   /* Clear temporaries */
+	mv t6, x0                   /* Clear temporaries */
 
 2:                              /* String comparison loop: */
-	lw t5, 0(t3)                /* What is the next character in the target? */
-    lw t6, 0(t4)                /* What is the next character in the dictionary? */
+	lb t5, 0(t3)                /* What is the next character in the goal? */
+    lb t6, 0(t4)                /* What is the next character in the dictionary? */
     bne t5, t6, 3f              /* If they are not the same, bail. */
 	addi t2, t2, -1             /* Decrement count */
-    addi t3, t3, 1              /* Advance target pointer */
+    addi t3, t3, 1              /* Advance goal pointer */
     addi t4, t4, 1              /* Advance dict pointer */
 	bnez t2, 2b                 /* If we have characters remaining, go check them... */
 
@@ -517,10 +529,10 @@ _COMMA:
     beqz a0, 1f                 /* If 0, no entry found */
 
     /* Case: Found entry in dictionary. Register a0 contains the address. */
-	lb s0, 4(a0)                /* Dictionary length + flags byte */
+	lb s1, 4(a0)                /* Dictionary length + flags byte */
 	call _TCFA                  /* Convert dictionary entry to code field address in a0 */
-	andi s0, s0, F_IMMED        /* Check if IMMED flag is set */
-	bnez s0, 4f                 /* If it is, jump right to execution */
+	andi s1, s1, F_IMMED        /* Check if IMMED flag is set */
+	bnez s1, 4f                 /* If it is, jump right to execution */
 	j 2f                        /* Otherwise, go to STATE-dependent behaviors */
 
 1:
@@ -597,7 +609,7 @@ interpret_is_lit:
 
 	.bss
     /* Forth return stack */
-    .align 4
+    .p2align 2
 return_stack:
     .space RETURN_STACK_SIZE
 return_stack_top:               /* Initial top of return stack. Grows down. */
