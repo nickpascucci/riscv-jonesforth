@@ -18,18 +18,19 @@
 	| x8       | s0 / fp  | Saved / frame pointer | Callee |
 	| x9       | s1       | Saved register        | Callee |
 	| x10-x11  | a0-a1    | Fn args/return values | Caller |
-	| x12-x17  | 12-17    | Fn args               | Caller |
+	| x12-x17  | a2-a7    | Fn args               | Caller |
 	| x18-x27  | s2-s11   | Saved registers       | Callee |
 	| x28-x31  | t3-t6    | Temporaries           | Caller |
 
 	Below is the mapping from the original Jonesforth registers to the RISC-V ones.
 
-    | x86 | RISCV | Purpose              |
-    |-----+-------+----------------------|
-    | eax | t0    | General purpose      |
-    | esi | gp    | Instruction pointer  |
-    | ebp | tp    | Return stack pointer |
-    | esp | sp    | Data stack pointer   |
+    | x86 | RISCV   | Purpose                                |
+    |-----+---------+----------------------------------------|
+    | eax | various | RISCV allows more flexibility than x86 |
+	|     | fp      | Current codeword pointer               |
+    | esi | gp      | Next codeword pointer                  |
+    | ebp | tp      | Return stack pointer                   |
+    | esp | sp      | Data stack pointer                     |
     */
 
     /* TODO Investigate using compressed instruction set */
@@ -47,11 +48,10 @@
     This may be optimizable in the future. */
 
     .macro NEXT
-	lw t0, 0(gp)                /* Load the jump target into t0. */
-	addi gp, gp, 4              /* Increment gp, emulating LODSL to point to next word */
-	/* These next two lines emulate the instruction jmp *(%eax) at jonesforth.s:308 */
-	lw t0, 0(t0)                /* Read the codeword of next target for indirect jump */
-    jalr x0, 0(t0)              /* Jump to the codeword pointed to by t0 */
+	lw fp, 0(gp)   /* Load the jump target into fp */
+	addi gp, gp, 4 /* Increment gp, emulating LODSL to point to next word */
+	lw t0, 0(fp)   /* Load address pointed to by codeword */
+    jr t0          /* Indirect jump to the codeword pointed to by address in fp. */
     .endm
 
     .macro PUSHRSP reg
@@ -67,20 +67,15 @@
     .text
     .align 4
 
-DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
-    PUSHRSP gp         /* Push addr of executing instruction onto the r stack */
-    addi t0, t0, 4     /* Advance t0 to point to first instruction in word */
-    lw gp, t0          /* gp's NEXT's working register; point it at that word */
-    NEXT
-
     .text
     .global _start
 _start:
-	/* We use a fixed address space, unlike Jonesforth, so we don't need to load the DSP */
-    la tp, return_stack_top     /* Load return stack address into frame pointer */
-	call set_up_data_segment
+	/* We use a fixed address space, unlike Jonesforth, so we don't need to allocate memory. */
+    la tp, return_stack_top     /* Load return stack address into frame pointer. */
+    la sp, data_stack_top       /* Set up stack pointer. */
+	/* HERE is assigned its initial value statically, at assembly time. */
 
-    lw gp, cold_start           /* Get ready... */
+    la gp, cold_start           /* Get ready... */
     NEXT                        /* Interpret! */
 
 cold_start:                     /* Startup: jump to QUIT */
@@ -107,6 +102,13 @@ name_\label :
     .int DOCOL
 	/* Put list of word pointers after */
     .endm
+
+/*  The colon interpreter must be defined after _start for the E310 to work properly.*/
+DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
+    PUSHRSP gp         /* Push addr of next instr. at previous call level onto the r. stack */
+    addi fp, fp, 4     /* Advance fp to point to first data word in current definition */
+    mv gp, fp          /* Make the data word the "next" word to execute */
+    NEXT
 
 	/* Define a Forth word with assembly implementation */
 	.macro defcode name, namelen, flags=0, label, prev
@@ -209,8 +211,8 @@ code_\label :
 
     defcode "C@",2,,FETCHBYTE,STOREBYTE
 	pop t1                      /* Address to store into */
-    lw x0, t0                   /* Clear t0 */
-	lb t0, t1                   /* Fetch the byte from memory */
+    mv t0, x0                   /* Clear t0 */
+	lb t0, 0(t1)                /* Fetch the byte from memory */
     push t0                     /* Push it onto the stack */
     NEXT
 
@@ -223,7 +225,7 @@ code_\label :
     NEXT
 
     .macro defvar name, namelen, flags=0, label, prev, initial=0
-    defcode \name, \namelen, \flags, \label
+    defcode \name, \namelen, \flags, \label, \prev
 	la t0, var_\name
     push t0
     NEXT
@@ -234,16 +236,17 @@ var_\name:
 	.endm
 
 	defvar "STATE",5,,STATE,CCOPY
-    defvar "HERE",4,,HERE,STATE
-    /* defvar "LATEST",6,,LATEST,  /\* NOTE: Must point to last word in builtin dict *\/ */
-	defvar "S0",4,,SZ,HERE,data_stack_top
-    defvar "BASE",4,,BASE,10
+    defvar "HERE",4,,HERE,STATE,data_region_start
+    defvar "LATEST",6,,LATEST,INTERPRET  /* NOTE: Must point to last word in builtin dict */
+	defvar "S0",4,,SZ,LATEST,data_stack_top
+    defvar "BASE",4,,BASE,SZ,10
 
 	/* Define a constant with an immediate value */
     .macro defconsti name, namelen, flags=0, label, prev, value
 	defcode \name, \namelen, \flags, \label, \prev
 	li t0, \value
 	push t0
+	NEXT
     .endm
 
 	/* Define a constant with an address value */
@@ -251,8 +254,8 @@ var_\name:
 	defcode \name, \namelen, \flags, \label, \prev
 	la t0, \value
 	push t0
+	NEXT
     .endm
-
 
     defconsti "VERSION",7,,VERSION,BASE,JONES_VERSION
     defconsta "R0",2,,RZ,VERSION,return_stack_top
@@ -263,7 +266,32 @@ var_\name:
 
     /* We omit the Linux system call bits here. */
 
-	/* TODO Implement return stack pieces */
+
+	/* Push a value onto the return stack */
+    defcode ">R",2,,TOR,__F_LENMASK
+    pop t0
+    PUSHRSP t0
+    NEXT
+
+	/* Pop a value from the return stack */
+	defcode "R>",2,,FROMR,TOR
+	POPRSP t0
+    push t0
+    NEXT
+
+	/* Get the value of the return stack pointer */
+	defcode "RSP@",4,,RSPFETCH,FROMR
+	push tp
+    NEXT
+
+	/* Set the value of the return stack pointer */
+	defcode "RSP!",4,,RSPSTORE,RSPFETCH
+	pop tp
+    NEXT
+
+	defcode "RDROP",5,,RDROP,RSPSTORE
+	addi tp, tp, 4              /* Increment return stack pointer by 1 cell */
+    NEXT
 
 	/*************************/
     /** Input and Output    **/
@@ -271,7 +299,7 @@ var_\name:
 
 	/* TODO Allow the user to read from either UART0 or UART1 */
 	/* TODO Provide KEY? and EMIT? */
-    defcode "KEY",3,,KEY,__F_LENMASK
+    defcode "KEY",3,,KEY,RDROP
 	call _KEY
 	push a0
 	NEXT
@@ -334,12 +362,17 @@ word_buffer:
 
 
     defcode "NUMBER",6,,NUMBER,WORD
-	/* TODO Implement NUMBER */
+	call _NUMBER
     NEXT
 
+_NUMBER:
+    /* TODO Implement _NUMBER */
+    ret
+
     defcode "FIND",4,,FIND,NUMBER
-	pop a0                      /* Length */
-	pop a1                      /* Address */
+	/* Registers must be compatible with _WORD to be used by INTERPRET */
+	pop a1                      /* Length */
+	pop a0                      /* Address */
     call _FIND
 	push a0                     /* Address of entry */
     NEXT
@@ -349,7 +382,7 @@ _FIND:
 1:
     beqz t0, 4f                 /* If the pointer in t0 is null, we're at dict's end */
 	/* Compare length of word */
-	lw t1, x0
+	mv t1, x0
 	lb t1, 4(t0)                /* Length field and flags */
     and t1, t1, (F_HIDDEN|F_LENMASK) /* Extract just name length (and hidden bit) */
 	bne a0, t1, 3f                   /* If the length doesn't match, go around again */
@@ -376,7 +409,7 @@ _FIND:
     j 1b                        /* and go check it for compatibility */
 
 4:                              /* Item not found! */
-	lw a0, x0                   /* Return 0 */
+	mv a0, x0                   /* Return 0 */
 
 
 	defcode ">CFA",4,,TCFA,FIND
@@ -387,7 +420,7 @@ _FIND:
 
 _TCFA:
 	addi a0, a0, 4              /* Skip ahead over link pointer */
-	lw t0, x0                   /* Zero out temporary */
+	mv t0, x0                   /* Zero out temporary */
     lb t0, 0(a0)                /* Get the length and flags byte */
     addi a0, a0, 1              /* Skip over that byte */
 	and t0, t0, (F_LENMASK)     /* Extract length */
@@ -408,6 +441,127 @@ _TCFA:
 	/* TODO Define CREATE */
     NEXT
 
+    defcode ",",1,,COMMA,CREATE
+	pop a0                      /* CFA to store */
+	call _COMMA
+    NEXT
+
+_COMMA:
+	lw t0, var_HERE             /* Get the address in HERE */
+	sw a0, 0(t0)                /* Store value at that address */
+	addi t0, t0, 4              /* Increment HERE... */
+	la t1, var_HERE             /* ... and store it */
+	sw t0, 0(t1)
+    ret
+
+    defcode "[",1,F_IMMED,LBRAC,COMMA
+	/* TODO */
+    NEXT
+
+    defcode "]",1,,RBRAC,LBRAC
+	/* TODO */
+    NEXT
+
+    defcode ":",1,,COLON,RBRAC
+	/* TODO */
+    NEXT
+
+    defcode ";",1,,SEMICOLON,COLON
+	/* TODO */
+    NEXT
+
+	defcode "IMMEDIATE",9,F_IMMED,IMMEDIATE,SEMICOLON
+	/* TODO */
+    NEXT
+
+    defcode "HIDDEN",6,,HIDDEN,IMMEDIATE
+	/* TODO */
+    NEXT
+
+    defcode "HIDE",4,,HIDE,HIDDEN
+	/* TODO */
+    NEXT
+
+    defcode "'",1,,TICK,HIDE
+	/* TODO */
+    NEXT
+
+	defcode "BRANCH",6,,BRANCH,TICK
+	lw t0, 0(gp)                /* Fetch offset from next instruction cell */
+    add gp, gp, t0              /* Add the offset to the instruction pointer */
+    NEXT
+
+	defcode "0BRANCH",7,,ZBRANCH,BRANCH
+	/* TODO */
+    NEXT
+
+	defcode "LITSTRING",9,,LITSTRING,ZBRANCH
+	/* TODO */
+    NEXT
+
+	defcode "TELL",4,,TELL,LITSTRING
+	/* TODO */
+    NEXT
+
+	defword "QUIT",4,,QUIT,TELL
+    .int RZ,RSPSTORE
+    .int INTERPRET
+    .int BRANCH,-8
+    NEXT
+
+    defcode "INTERPRET",9,,INTERPRET,QUIT
+    call _WORD                  /* Returns a0 = pointer to word, a1 = length */
+
+    sw x0, interpret_is_lit, t0 /* Set interpret_is_lit flag to 0 */
+	call _FIND                  /* Returns a0 = address of dictionary entry or 0 */
+    beqz a0, 1f                 /* If 0, no entry found */
+
+    /* Case: Found entry in dictionary. Register a0 contains the address. */
+	lb s0, 4(a0)                /* Dictionary length + flags byte */
+	call _TCFA                  /* Convert dictionary entry to code field address in a0 */
+	andi s0, s0, F_IMMED        /* Check if IMMED flag is set */
+	bnez s0, 4f                 /* If it is, jump right to execution */
+	j 2f                        /* Otherwise, go to STATE-dependent behaviors */
+
+1:
+    li t1, 1
+    sw t1, interpret_is_lit, t0 /* Set the flag to 1 */
+	call _NUMBER                /* Returns parsed number in a0, a1 > 0 if error */
+	bnez a1, 6f
+    /* TODO */
+
+2:  /* STATE dependent behavior */
+	lw t0, var_STATE            /* Are we compiling or executing? */
+	beqz t0, 4f                 /* If interpreting, go to executor block */
+
+	/* Compilation */
+    call _COMMA
+    lw t0, interpret_is_lit     /* Was the word a literal? */
+	beqz t0, 3f                 /* If not, run the next word */
+    /* TODO */
+
+3:
+    NEXT
+
+4:  /* Execution mode; expects CFA in a0 */
+    lw t0, interpret_is_lit     /* Literal? */
+	bnez t0, 5f                 /* If so, handle it specially */
+
+	lw t0, 0(a0)                /* Load the codeword */
+    jr t0                       /* Jump to the codeword */
+
+5:  /* Literals */
+    push a0                     /* The value is a literal, just push it */
+    NEXT
+
+6:                              /* Error handling */
+	/* TODO Print error message */
+	NEXT
+
+interpret_is_lit:
+    .int 0                      /* Flag to record if reading a literal */
+
+
     /*****************************************/
     /** Stacks and fixed memory allocations **/
     /*****************************************/
@@ -416,7 +570,6 @@ _TCFA:
     .set RETURN_STACK_SIZE, 512
     .set DATA_STACK_SIZE, 512
 
-set_up_data_segment:
 	/* Memory layout:
 
     We have 16KiB of memory to work with. By default, Jonesforth allocates 64 KiB :)
@@ -450,3 +603,4 @@ return_stack:
 return_stack_top:               /* Initial top of return stack. Grows down. */
 data_stack_top:                 /* Also initial top of data stack. Grows up. */
     .space RETURN_STACK_SIZE
+data_region_start:              /* Initial value of HERE */

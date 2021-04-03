@@ -4,8 +4,8 @@ ENTRY( _start )
 
 MEMORY
 {
-    ram (airwx) : ORIGIN = 0x80000000, LENGTH = 0x400000
     rom (irx!wa) : ORIGIN = 0x20400000, LENGTH = 0x1fc00000
+    ram (airwx) : ORIGIN = 0x80000000, LENGTH = 0x400000
 }
 
 PHDRS
@@ -29,18 +29,17 @@ SECTIONS
     PROVIDE(_rodata_end = .);
   } >rom :text
 
-  .data : {
-    . = ALIGN(4096);
-    PROVIDE(_data_start = .);
-    *(.sdata .sdata.*) *(.data .data.*)
-    PROVIDE(_data_end = .);
-  } >ram :data
-
   .bss :{
     PROVIDE(_bss_start = .);
     *(.sbss .sbss.*) *(.bss .bss.*)
     PROVIDE(_bss_end = .);
   } >ram :bss
+
+  .data : {
+    PROVIDE(_data_start = .);
+    *(.sdata .sdata.*) *(.data .data.*)
+    PROVIDE(_data_end = .);
+  } >ram :data
 
   PROVIDE(_memory_start = ORIGIN(ram));
   PROVIDE(_memory_end = ORIGIN(ram) + LENGTH(ram));
