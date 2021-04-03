@@ -7,7 +7,7 @@
 	riscv32-as --march=rv32imac -mabi=ilp32 -g -o $@ $<
 
 %.hex: %.elf
-	riscv32-objcopy $@ -O ihex $<
+	riscv32-objcopy $< -O ihex $@
 
 inspect: ${PROGRAM}.elf
 	riscv32-objdump --source $<
@@ -25,4 +25,4 @@ debug: ${PROGRAM}.elf
 	qemu-system-riscv32 -machine sifive_e -nographic -kernel ${PROGRAM}.elf -S -s
 
 clean:
-	-rm *.img *.elf *.o
+	-rm *.img *.elf *.o *.hex

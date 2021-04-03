@@ -163,8 +163,124 @@ code_\label :
     push t0
     NEXT
 
+	defcode "ROT",3,,ROT,OVER
+	/* TODO */
+    NEXT
+
+    defcode "-ROT",4,,NROT,ROT
+	/* TODO */
+    NEXT
+
+    defcode "2DROP",5,,TWODROP,NROT
+	/* TODO */
+    NEXT
+
+    defcode "2SWAP",5,,TWOSWAP,TWODROP
+    /* TODO */
+    NEXT
+
+    defcode "?DUP",4,,QDUP,TWOSWAP
+    /* TODO */
+    NEXT
+
+    defcode "1+",2,,INCR,QDUP
+    /* TODO */
+    NEXT
+
+    defcode "1-",2,,DECR,INCR
+    /* TODO */
+    NEXT
+
+    defcode "4+",2,,INCR4,DECR
+    /* TODO */
+    NEXT
+
+    defcode "4-",2,,DECR4,INCR4
+    /* TODO */
+    NEXT
+
+    defcode "+",1,,ADD,DECR4
+    /* TODO */
+    NEXT
+
+    defcode "-",1,,SUB,ADD
+    /* TODO */
+    NEXT
+
+    defcode "*",1,,MUL,SUB
+    /* TODO */
+    NEXT
+
+    defcode "/MOD",4,,DIVMOD,MUL
+    /* TODO */
+    NEXT
+
+    defcode "=",1,,EQU,DIVMOD
+    /* TODO */
+    NEXT
+
+    defcode "<>",2,,NEQU,EQU
+    /* TODO */
+    NEXT
+
+    defcode "<",1,,LT,NEQU
+    /* TODO */
+    NEXT
+
+    defcode ">",1,,GT,LT
+    /* TODO */
+    NEXT
+
+    defcode "<=",2,,LE,GT
+    /* TODO */
+    NEXT
+
+    defcode ">=",2,,GE,LE
+    /* TODO */
+    NEXT
+
+    defcode "0=",2,,ZEQU,GE
+    /* TODO */
+    NEXT
+
+    defcode "0<>",3,,ZNEQU,ZEQU
+    /* TODO */
+    NEXT
+
+    defcode "0<",2,,ZLT,ZNEQU
+    /* TODO */
+    NEXT
+
+    defcode "0>",2,,ZGT,ZLT
+    /* TODO */
+    NEXT
+
+    defcode "0<=",3,,ZLE,ZGT
+    /* TODO */
+    NEXT
+
+    defcode "0>=",3,,ZGE,ZLE
+    /* TODO */
+    NEXT
+
+    defcode "AND",3,,AND,ZGE
+    /* TODO */
+    NEXT
+
+    defcode "OR",2,,OR,AND
+    /* TODO */
+    NEXT
+
+    defcode "XOR",3,,XOR,OR
+    /* TODO */
+    NEXT
+
+    defcode "INVERT",6,,INVERT,XOR
+    /* TODO */
+    NEXT
+
     /* TODO Implement remaining core words */
-    defcode "EXIT",4,,EXIT,OVER /* TODO Update the previous link when new words are added */
+    defcode "EXIT",4,,EXIT,INVERT
     POPRSP gp
     NEXT
 
@@ -442,7 +558,8 @@ _TCFA:
 	ret
 
     defword ">DFA",4,,TDFA,TCFA
-	/* TODO Implement TDFA */
+	.int TCFA                   /* >CFA (get code field address) */
+	.int INCR4                  /* 4+ (add 4 to it to get to next word) */
     .int EXIT
 
     /*****************/
