@@ -1,3 +1,4 @@
 /hello
 *.elf
 *.o
+*.hex

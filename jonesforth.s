@@ -129,17 +129,24 @@ code_\label :
 	/* Assembly code follows; must end with NEXT */
     .endm
 
-	/* TODO What should the order of operations be for push/pop? */
-	/* Pop a value from the top of the stack into a register */
+	/* 
+    The return stack and data stack start at the same address. We deconflict
+	their accesses without wasting space by ensuring that the return stack
+	advances its pointer before pushing data and after popping, and that the
+	data stack does the opposite. Thus the starting word is part of the data
+	stack.
+    */
+
+    /* Pop a value from the top of the stack into a register */
 	.macro pop reg
-	lw \reg, 0(sp)
     addi sp, sp, -4
+	lw \reg, 0(sp)
     .endm
 
 	/* Push a register onto the stack */
     .macro push reg
-	addi sp, sp, 4
 	sw \reg, 0(sp)
+	addi sp, sp, 4
     .endm
 
 	defcode "DROP",4,,DROP,link_base
@@ -164,63 +171,140 @@ code_\label :
     NEXT
 
 	defcode "ROT",3,,ROT,OVER
-	/* TODO */
+    pop t0
+    pop t1
+    pop t2
+    push t1
+	push t0
+	push t2
     NEXT
 
     defcode "-ROT",4,,NROT,ROT
-	/* TODO */
+    pop t0
+    pop t1
+    pop t2
+	push t0
+    push t2
+	push t1
     NEXT
 
     defcode "2DROP",5,,TWODROP,NROT
-	/* TODO */
+    pop t0
+    pop t0
     NEXT
 
-    defcode "2SWAP",5,,TWOSWAP,TWODROP
-    /* TODO */
+    defcode "2DUP",4,,TWODUP,TWODROP
+	lw t0, 0(sp)
+    lw t1, 4(sp)
+    push t1
+    push t0
+    NEXT
+
+	defcode "2SWAP",5,,TWOSWAP,TWODUP
+	pop t0
+    pop t1
+    pop t2
+    pop t3
+    push t1
+    push t0
+    push t3
+    push t2
     NEXT
 
     defcode "?DUP",4,,QDUP,TWOSWAP
-    /* TODO */
-    NEXT
+    lw t0, 0(sp)
+    bnez t0, 1f
+    push t0
+1:  NEXT
 
     defcode "1+",2,,INCR,QDUP
-    /* TODO */
+    lw t0, 0(sp)
+    addi t0, t0, 1
+    sw t0, 0(sp)
     NEXT
 
     defcode "1-",2,,DECR,INCR
-    /* TODO */
+    lw t0, 0(sp)
+    addi t0, t0, -1
+    sw t0, 0(sp)
     NEXT
 
     defcode "4+",2,,INCR4,DECR
-    /* TODO */
+    lw t0, 0(sp)
+    addi t0, t0, 4
+    sw t0, 0(sp)
     NEXT
 
     defcode "4-",2,,DECR4,INCR4
-    /* TODO */
+    lw t0, 0(sp)
+    addi t0, t0, -4
+    sw t0, 0(sp)
     NEXT
 
     defcode "+",1,,ADD,DECR4
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    add t0, t0, t1
+    sw t0, 0(sp)
     NEXT
 
     defcode "-",1,,SUB,ADD
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    sub t0, t0, t1
+    sw t0, 0(sp)
     NEXT
 
     defcode "*",1,,MUL,SUB
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    mul t0, t0, t1
+    sw t0, 0(sp)
     NEXT
 
     defcode "/MOD",4,,DIVMOD,MUL
-    /* TODO */
+    lw t0, 0(sp)                /* Divisor */
+    lw t1, 4(sp)                /* Dividend */
+    div t2, t1, t0              /* Quotient */
+    rem t3, t1, t0              /* Remainder */
+    sw t3, 0(sp)
+    sw t2, 4(sp)
     NEXT
+
+	/* 
+    Jonesforth uses a C-style boolean. I prefer the Forth style bitmask
+	approach, so here I take a different tack.
+
+    If two bitfields are equal, then their XOR is zero. Let's check that this is
+	true with a two-bit value:
+	
+    a/b 00 01 10 11
+    00  00 01 10 11
+    01  01 00 11 10
+    10  10 11 00 01
+    11  11 10 01 00
+
+    Given this, we can return all ones if two values are equal by taking the
+	one's complement of the XOR of the two values.
+    */
 
     defcode "=",1,,EQU,DIVMOD
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    xor t0, t0, t1
+    not t0, t0
+	sw t0, 0(sp)
     NEXT
 
+	/* Not-equal is the same, but we do an extra inversion to ensure we get all
+	1's if the condition holds. */
     defcode "<>",2,,NEQU,EQU
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    xor t0, t0, t1
+    not t0, t0
+    not t0, t0                  /* <- Double-not */
+	sw t0, 0(sp)
     NEXT
 
     defcode "<",1,,LT,NEQU
