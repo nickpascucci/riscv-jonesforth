@@ -639,12 +639,70 @@ word_buffer:
 
 
     defcode "NUMBER",6,,NUMBER,WORD
+	pop a0                      /* Length of string */
+    pop a1                      /* Starting address */
 	call _NUMBER
+	push a1                     /* Parsed value */
+    push a0                     /* Remaining characters */
     NEXT
 
+    /*
+	INPUTS
+    a0 - Start address of input
+    a1 - Length of input
+
+    INTERMEDIATES
+	t0 - BASE
+	t1 - Current character
+	t2 - Accumulated value
+    t3 - 0 if negative, nonzero if positive
+
+    OUTPUTS
+    a0 - Count of unparsed characters
+    a1 - Value of read characters in BASE
+    */
+
 _NUMBER:
-    /* TODO Implement _NUMBER */
-    ret
+	mv t2, x0                   /* We'll accumulate into t2 */
+    beqz a1, 5f                 /* If the length of string is 0, just bail */
+
+    lw t0, var_BASE             /* Read radix */
+
+	lb t3, 0(a0)                /* Load first character */
+	addi t3, t3, (-1 * '-')     /* Subtract the code for '-' to see if it matches */
+	/* Here, t3 = 0 if negative, nonzero if positive  */
+	bnez t3, 1f                 /* If first char is not '-', leave it and try parsing number */
+	addi a1, a1, -1             /* Otherwise, adjust length... */
+	addi a0, a0, 1              /* ... and skip over the '-' character */
+
+	/* Read characters in a loop */
+1:  mul t2, t2, t0              /* Multiply by the radix to move everything over a slot */
+    lb t1, 0(a0)                /* Grab next character */
+    addi a0, a0, 1              /* Increment address */
+
+	/* Convert ASCII numerics into numbers */
+2:  addi t1, t1, (-1 * '0')
+    bltz t1, 4f                 /* < '0'? That's an error. */
+	li t4, 10
+    blt t1, t4, 3f              /* <= '9'? Good digit, check against BASE */
+	addi t1, t1, -17            /* Subtract 17 (difference between 'A' and '0') */
+	bltz t1, 4f                 /* In the region between 0 and A, that's invalid */
+	addi t1, t1, 10             /* Adjust value up to correct range */
+
+	/* Check if the value is greater than radix to see if we should exit */
+3:  bge t1, t0, 4f              /* If the value is greater than BASE, it's an error */
+
+	/* Character OK */
+    add t2, t2, t1
+    addi a1, a1, -1             /* Decrement count */
+	bgtz a1, 1b                 /* If there are characters remaining, go again */
+
+	/* Done reading, apply sign */
+4:  mv a0, t2                   /* Copy accumulated value to return register */
+    bnez t3, 5f                 /* If we are positive (t3 <> 0), all done */
+	sub a0, x0, a0              /* Otherwise negate the result */
+
+5:  ret                         /* All done! */
 
     defcode "FIND",4,,FIND,NUMBER
 	/* Registers must be compatible with _WORD to be used by INTERPRET */
@@ -690,7 +748,7 @@ _FIND:
 
 4:                              /* Item not found! */
 	mv a0, x0                   /* Return 0 */
-
+    ret
 
 	defcode ">CFA",4,,TCFA,FIND
 	pop a0                      /* Address of dictionary entry */
@@ -727,6 +785,7 @@ _TCFA:
 	call _COMMA
     NEXT
 
+    /* TODO Provide variants of COMMA which compile to flash instead of RAM */
 _COMMA:
 	lw t0, var_HERE             /* Get the address in HERE */
 	sw a0, 0(t0)                /* Store value at that address */
@@ -736,11 +795,14 @@ _COMMA:
     ret
 
     defcode "[",1,F_IMMED,LBRAC,COMMA
-	/* TODO */
+	la t0, var_STATE
+    sw x0, 0(t0)
     NEXT
 
     defcode "]",1,,RBRAC,LBRAC
-	/* TODO */
+	la t0, var_STATE
+    li t1, 1
+    sw t1, 0(t0)
     NEXT
 
     defcode ":",1,,COLON,RBRAC
@@ -793,7 +855,8 @@ _COMMA:
     defcode "INTERPRET",9,,INTERPRET,QUIT
     call _WORD                  /* Returns a0 = pointer to word, a1 = length */
 
-    sw x0, interpret_is_lit, t0 /* Set interpret_is_lit flag to 0 */
+    mv s2, x0                   /* Set "is literal" flag to 0 */
+	mv s1, a0                   /* Save address of word */
 	call _FIND                  /* Returns a0 = address of dictionary entry or 0 */
     beqz a0, 1f                 /* If 0, no entry found */
 
@@ -804,12 +867,14 @@ _COMMA:
 	bnez s1, 4f                 /* If it is, jump right to execution */
 	j 2f                        /* Otherwise, go to STATE-dependent behaviors */
 
+	/* Case: No dictionary entry found  */
 1:
-    li t1, 1
-    sw t1, interpret_is_lit, t0 /* Set the flag to 1 */
+	li s2, 1                    /* Interpreting a literal */
+	mv a0, s1                   /* Reload a0 with saved address from _WORD */
 	call _NUMBER                /* Returns parsed number in a0, a1 > 0 if error */
 	bnez a1, 6f
-    /* TODO */
+    mv s1, a0                   /* Copy value into s1 for later */
+    la a0, LIT                  /* Copy address of LIT into a0 for _COMMA */
 
 2:  /* STATE dependent behavior */
 	lw t0, var_STATE            /* Are we compiling or executing? */
@@ -817,31 +882,24 @@ _COMMA:
 
 	/* Compilation */
     call _COMMA
-    lw t0, interpret_is_lit     /* Was the word a literal? */
-	beqz t0, 3f                 /* If not, run the next word */
-    /* TODO */
+	beqz s2, 3f                 /* Was the word a literal? If not, run the next word */
+    mv a0, s1                   /* Otherwise, move the literal into a0... */
+    call _COMMA                 /* ... and compile it. */
 
-3:
-    NEXT
+3:  NEXT
 
 4:  /* Execution mode; expects CFA in a0 */
-    lw t0, interpret_is_lit     /* Literal? */
-	bnez t0, 5f                 /* If so, handle it specially */
-
+	bnez s2, 5f                 /* Literal? If so, handle it specially */
 	lw t0, 0(a0)                /* Load the codeword */
     jr t0                       /* Jump to the codeword */
 
-5:  /* Literals */
-    push a0                     /* The value is a literal, just push it */
+5:  /* Execution mode: Literals */
+    push s1                     /* The value is a literal, just push it */
     NEXT
 
 6:                              /* Error handling */
 	/* TODO Print error message */
 	NEXT
-
-interpret_is_lit:
-    .int 0                      /* Flag to record if reading a literal */
-
 
     /*****************************************/
     /** Stacks and fixed memory allocations **/
