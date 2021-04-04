@@ -503,7 +503,7 @@ var_\name:
     .int \initial
 	.endm
 
-	defvar "STATE", 5,,STATE, CCOPY
+	defvar "STATE", 5,,STATE, CMOVE
     defvar "HERE",  4,,HERE,  STATE, data_region_start
 	/* NOTE: Must point to last word in builtin dict */
     defvar "LATEST",6,,LATEST,HERE,  name_INTERPRET
@@ -526,11 +526,11 @@ var_\name:
 	NEXT
     .endm
 
-    defconsti "VERSION",7,,VERSION,BASE,JONES_VERSION
-    defconsta "R0",2,,RZ,VERSION,return_stack_top
-	defconsta "DOCOLO",5,,__DOCOL,RZ,DOCOL
-	defconsti "F_IMMED",7,,__F_IMMED,__DOCOL,F_IMMED
-	defconsti "F_HIDDEN",8,,__F_HIDDEN,__F_IMMED,F_HIDDEN
+    defconsti "VERSION",  7,,VERSION,    BASE,      JONES_VERSION
+    defconsta "R0",       2,,RZ,         VERSION,   return_stack_top
+	defconsta "DOCOL",    5,,__DOCOL,    RZ,        DOCOL
+	defconsti "F_IMMED",  7,,__F_IMMED,  __DOCOL,   F_IMMED
+	defconsti "F_HIDDEN", 8,,__F_HIDDEN, __F_IMMED, F_HIDDEN
 	defconsti "F_LENMASK",9,,__F_LENMASK,__F_HIDDEN,F_LENMASK
 
     /* We omit the Linux system call bits here. */
