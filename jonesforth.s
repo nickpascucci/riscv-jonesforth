@@ -129,7 +129,7 @@ code_\label :
 	/* Assembly code follows; must end with NEXT */
     .endm
 
-	/* 
+	/*
     The return stack and data stack start at the same address. We deconflict
 	their accesses without wasting space by ensuring that the return stack
 	advances its pointer before pushing data and after popping, and that the
@@ -241,43 +241,47 @@ code_\label :
     sw t0, 0(sp)
     NEXT
 
+	/* TODO A lot of these operations below could be made more efficient by
+	changing the push/pop operations by avoiding manipulation of the stack
+	pointer when the stack size does not change. */
+
     defcode "+",1,,ADD,DECR4
     pop t0
-    lw t1, 0(sp)
+	pop t1
     add t0, t0, t1
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "-",1,,SUB,ADD
-    pop t0
-    lw t1, 0(sp)
-    sub t0, t0, t1
-    sw t0, 0(sp)
+    pop t0                      /* b */
+    pop t1                      /* a */
+    sub t0, t1, t0              /* a - b */
+    push t0
     NEXT
 
     defcode "*",1,,MUL,SUB
     pop t0
-    lw t1, 0(sp)
+	pop t1
     mul t0, t0, t1
-    sw t0, 0(sp)
+    push t1
     NEXT
 
     defcode "/MOD",4,,DIVMOD,MUL
-    lw t0, 0(sp)                /* Divisor */
-    lw t1, 4(sp)                /* Dividend */
+	pop t0                      /* Divisor */
+    pop t1                      /* Dividend */
     div t2, t1, t0              /* Quotient */
     rem t3, t1, t0              /* Remainder */
-    sw t3, 0(sp)
-    sw t2, 4(sp)
+    push t3
+    push t2
     NEXT
 
-	/* 
+	/*
     Jonesforth uses a C-style boolean. I prefer the Forth style bitmask
 	approach, so here I take a different tack.
 
     If two bitfields are equal, then their XOR is zero. Let's check that this is
 	true with a two-bit value:
-	
+
     a/b 00 01 10 11
     00  00 01 10 11
     01  01 00 11 10
@@ -290,126 +294,126 @@ code_\label :
 
     defcode "=",1,,EQU,DIVMOD
     pop t0
-    lw t1, 0(sp)
+	pop t1
     xor t0, t0, t1
     not t0, t0
-	sw t0, 0(sp)
+	push t0
     NEXT
 
 	/* Not-equal is the same, but we do an extra inversion to ensure we get all
 	1's if the condition holds. */
     defcode "<>",2,,NEQU,EQU
     pop t0
-    lw t1, 0(sp)
+	pop t1
     xor t0, t0, t1
     not t0, t0
     not t0, t0                  /* <- Double-not */
-	sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "<",1,,LT,NEQU
-    pop t0
-    lw t1, 0(sp)
-    slt t1, t1, t0              /* Sets t1 to 1 if t1 is less than t0 */
-	sub t1, x0, t1              /* Little trick: -1 is all ones in two's complement, */
-	sw t1, 0(sp)                /* if t1=1 this is all 1s and if t1=0 all 0's. */
+    pop t0                      /* b */
+    pop t1                      /* a */
+    slt t1, t1, t0       /* Sets t1 to 1 if t1 is less than t0 (a < b) */
+	sub t1, x0, t1       /* Little trick: -1 is all ones in two's complement, */
+	push t1              /* if t1=1 this is all 1s and if t1=0 all 0's. */
     NEXT
 
     defcode ">",1,,GT,LT
     pop t0
-    lw t1, 0(sp)
+    pop t1
     slt t1, t0, t1              /* Just swap the order of arguments here */
 	sub t1, x0, t1
-	sw t1, 0(sp)
+	push t1
     NEXT
 
     defcode "<=",2,,LE,GT
     pop t0
-    lw t1, 0(sp)
+    pop t1
     slt t1, t0, t1
 	sub t1, x0, t1
 	not t1, t1                  /* For total order a <= b <=> ~(a > b) */
-	sw t1, 0(sp)
+    push t1
     NEXT
 
     defcode ">=",2,,GE,LE
     pop t0
-    lw t1, 0(sp)
+    pop t1
     slt t1, t1, t0              /* Same, but with other arg order */
 	sub t1, x0, t1
 	not t1, t1
-	sw t1, 0(sp)
+    push t1
     NEXT
 
     defcode "0=",2,,ZEQU,GE
-    lw t0, 0(sp)
+    pop t0
     seqz t0, t0                 /* Sets t0 to 1 if t0 = 0 */
 	sub t0, x0, t0
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "0<>",3,,ZNEQU,ZEQU
-    lw t0, 0(sp)
+    pop t0
     snez t0, t0
 	sub t0, x0, t0
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "0<",2,,ZLT,ZNEQU
-    lw t0, 0(sp)
+    pop t0
     sltz t0, t0
 	sub t0, x0, t0
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "0>",2,,ZGT,ZLT
-    lw t0, 0(sp)
+    pop t0
     sgtz t0, t0
 	sub t0, x0, t0
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "0<=",3,,ZLE,ZGT
-    lw t0, 0(sp)
+    pop t0
     sltz t0, t0
 	sub t0, x0, t0
 	not t0, t0
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "0>=",3,,ZGE,ZLE
-    lw t0, 0(sp)
+    pop t0
     sgtz t0, t0
 	sub t0, x0, t0
 	not t0, t0
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "AND",3,,AND,ZGE
     pop t0
-    lw t1, 0(sp)
+    pop t1
 	and t0, t0, t1
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "OR",2,,OR,AND
     pop t0
-    lw t1, 0(sp)
+    pop t1
 	or t0, t0, t1
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "XOR",3,,XOR,OR
     pop t0
-    lw t1, 0(sp)
+    pop t1
 	xor t0, t0, t1
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "INVERT",6,,INVERT,XOR
-    lw t0, 0(sp)
+    pop t0
 	not t0, t0
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "EXIT",4,,EXIT,INVERT
