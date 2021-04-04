@@ -308,62 +308,110 @@ code_\label :
     NEXT
 
     defcode "<",1,,LT,NEQU
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    slt t1, t1, t0              /* Sets t1 to 1 if t1 is less than t0 */
+	sub t1, x0, t1              /* Little trick: -1 is all ones in two's complement, */
+	sw t1, 0(sp)                /* if t1=1 this is all 1s and if t1=0 all 0's. */
     NEXT
 
     defcode ">",1,,GT,LT
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    slt t1, t0, t1              /* Just swap the order of arguments here */
+	sub t1, x0, t1
+	sw t1, 0(sp)
     NEXT
 
     defcode "<=",2,,LE,GT
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    slt t1, t0, t1
+	sub t1, x0, t1
+	not t1, t1                  /* For total order a <= b <=> ~(a > b) */
+	sw t1, 0(sp)
     NEXT
 
     defcode ">=",2,,GE,LE
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+    slt t1, t1, t0              /* Same, but with other arg order */
+	sub t1, x0, t1
+	not t1, t1
+	sw t1, 0(sp)
     NEXT
 
     defcode "0=",2,,ZEQU,GE
-    /* TODO */
+    lw t0, 0(sp)
+    seqz t0, t0                 /* Sets t0 to 1 if t0 = 0 */
+	sub t0, x0, t0
+    sw t0, 0(sp)
     NEXT
 
     defcode "0<>",3,,ZNEQU,ZEQU
-    /* TODO */
+    lw t0, 0(sp)
+    snez t0, t0
+	sub t0, x0, t0
+    sw t0, 0(sp)
     NEXT
 
     defcode "0<",2,,ZLT,ZNEQU
-    /* TODO */
+    lw t0, 0(sp)
+    sltz t0, t0
+	sub t0, x0, t0
+    sw t0, 0(sp)
     NEXT
 
     defcode "0>",2,,ZGT,ZLT
-    /* TODO */
+    lw t0, 0(sp)
+    sgtz t0, t0
+	sub t0, x0, t0
+    sw t0, 0(sp)
     NEXT
 
     defcode "0<=",3,,ZLE,ZGT
-    /* TODO */
+    lw t0, 0(sp)
+    sltz t0, t0
+	sub t0, x0, t0
+	not t0, t0
+    sw t0, 0(sp)
     NEXT
 
     defcode "0>=",3,,ZGE,ZLE
-    /* TODO */
+    lw t0, 0(sp)
+    sgtz t0, t0
+	sub t0, x0, t0
+	not t0, t0
+    sw t0, 0(sp)
     NEXT
 
     defcode "AND",3,,AND,ZGE
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+	and t0, t0, t1
+    sw t0, 0(sp)
     NEXT
 
     defcode "OR",2,,OR,AND
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+	or t0, t0, t1
+    sw t0, 0(sp)
     NEXT
 
     defcode "XOR",3,,XOR,OR
-    /* TODO */
+    pop t0
+    lw t1, 0(sp)
+	xor t0, t0, t1
+    sw t0, 0(sp)
     NEXT
 
     defcode "INVERT",6,,INVERT,XOR
-    /* TODO */
+    lw t0, 0(sp)
+	not t0, t0
+    sw t0, 0(sp)
     NEXT
 
-    /* TODO Implement remaining core words */
     defcode "EXIT",4,,EXIT,INVERT
     POPRSP gp
     NEXT
@@ -417,12 +465,28 @@ code_\label :
     NEXT
 
 	defcode "C@C!",4,,CCOPY,FETCHBYTE
-	/* TODO */
+	lw t1, 0(sp)                /* Destination address */
+	lw t0, 4(sp)                /* Source address */
+    lw t2, 0(t0)                /* Get source character */
+    sw t2, 0(t1)                /* Write to destination */
+    addi t1, t1, 1              /* Increment destination address */
+    addi t0, t0, 1              /* Increment source address */
+	sw t1, 0(sp)                /* Update stack */
+	sw t0, 4(sp)
     NEXT
 
 	defcode "CMOVE",5,,CMOVE,CCOPY
-	/* TODO */
-    NEXT
+	pop t0                      /* Length */
+    pop t2                      /* Destination address */
+	pop t1                      /* Source address */
+1:  beqz t0, 2f                 /* If count is 0, break */
+	lb t3, 0(t1)                /* Copy byte at source into dest */
+    sb t3, 0(t2)
+	addi t0, t0, -1             /* Decrement count */
+    addi t1, t1, 1              /* Increment source */
+    addi t2, t2, 1              /* Increment dest */
+	j 1b                        /* Go around again */
+2:  NEXT
 
     .macro defvar name, namelen, flags=0, label, prev, initial=0
     defcode \name, \namelen, \flags, \label, \prev
