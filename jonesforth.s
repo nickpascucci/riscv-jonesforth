@@ -31,6 +31,10 @@
     | esi | gp      | Next codeword pointer                  |
     | ebp | tp      | Return stack pointer                   |
     | esp | sp      | Data stack pointer                     |
+
+	Note that I take some liberties with the calling conventions - for example,
+	I don't always preserve saved registers. This is a small enough program that
+	it doesn't matter much.
     */
 
     /* TODO Investigate using compressed instruction set */
@@ -480,17 +484,36 @@ code_\label :
     NEXT
 
 	defcode "CMOVE",5,,CMOVE,CCOPY
-	pop t0                      /* Length */
-    pop t2                      /* Destination address */
-	pop t1                      /* Source address */
-1:  beqz t0, 2f                 /* If count is 0, break */
-	lb t3, 0(t1)                /* Copy byte at source into dest */
-    sb t3, 0(t2)
-	addi t0, t0, -1             /* Decrement count */
-    addi t1, t1, 1              /* Increment source */
-    addi t2, t2, 1              /* Increment dest */
+	pop a0                      /* Length */
+    pop a2                      /* Destination address */
+	pop a1                      /* Source address */
+	call _CMOVE
+    NEXT
+
+	/*
+	Copy n characters from one buffer to another in the forwards direction.
+
+    INPUTS
+	a0 - Length, in bytes
+    a1 - Source address
+    a2 - Destination address
+
+	INTERMEDIATES
+	t0 - Current byte scratch
+
+    OUTPUTS
+    None.
+    */
+
+_CMOVE:
+1:  beqz a0, 2f                 /* If count is 0, break */
+	lb t0, 0(a1)                /* Copy byte at source into dest */
+    sb t0, 0(a2)
+	addi a0, a0, -1             /* Decrement count */
+    addi a1, a1, 1              /* Increment source */
+    addi a2, a2, 1              /* Increment dest */
 	j 1b                        /* Go around again */
-2:  NEXT
+2:  ret
 
     .macro defvar name, namelen, flags=0, label, prev, initial=0
     defcode \name, \namelen, \flags, \label, \prev
@@ -584,13 +607,28 @@ _KEY:
     ret                         /* We have valid data so return it. */
 
     defcode "EMIT",4,,EMIT,KEY
-    li t1, UART0_BASE_ADDR      /* First, load the UART0 address */
-    pop t0                      /* Get the character to write */
-1:
-    lw t3, 0(t1)                /* Read the txdata register. This gives 0 if we can write. */
-	bnez t3, 1b                 /* If the queue is full, loop until we can send. */
-    sw t0, 0(t1)                /* Write it to the serial output*/
+    pop a0                      /* Get the character to write */
+	call _EMIT
     NEXT
+
+	/*
+    INPUTS
+    a0 - Character to print
+
+    INTERMEDIATES
+    t0 - UART base address
+    t1 - TX data value, for delay loop
+
+    OUTPUTS
+    None
+    */
+_EMIT:
+    li t0, UART0_BASE_ADDR      /* First, load the UART0 address */
+1:
+    lw t1, 0(t0)                /* Read the txdata register. This gives 0 if we can write. */
+	bnez t1, 1b                 /* If the queue is full, loop until we can send. */
+    sw a0, 0(t0)                /* Write it to the serial output*/
+    ret
 
 	defcode "WORD",4,,WORD,EMIT
 	call _WORD
@@ -776,8 +814,25 @@ _TCFA:
     /** Compilation **/
     /*****************/
 
+	/* TODO Allow words to be defined places other than RAM */
     defcode "CREATE",6,,CREATE,TDFA
-	/* TODO Define CREATE */
+    pop a0                      /* Length */
+	pop a1                      /* Address of name */
+
+	lw a2, var_HERE             /* Next spot in memory */
+	mv s1, a2                   /* Make a copy of HERE for later */
+    lw t2, var_LATEST           /* Last defined word */
+
+    sw t2, 0(a2)                /* Add the link portion to the header */
+	addi a2, a2, 4                  /* Move HERE past the link */
+    sb a0, 0(a2)                /* Write the length/flags byte */
+	addi a2, a2, 1                  /* Move HERE past the length byte */
+	call _CMOVE                 /* Copy the name into HERE */
+	addi a2, a2, 3                  /* Align to 4 byte boundary */
+	andi a2, a2, -3
+
+	sw s1, var_LATEST, t0       /* Update LATEST to point to original HERE */
+    sw a2, var_HERE, t0         /* Store updated HERE */
     NEXT
 
     defcode ",",1,,COMMA,CREATE
@@ -785,13 +840,11 @@ _TCFA:
 	call _COMMA
     NEXT
 
-    /* TODO Provide variants of COMMA which compile to flash instead of RAM */
 _COMMA:
 	lw t0, var_HERE             /* Get the address in HERE */
-	sw a0, 0(t0)                /* Store value at that address */
+	sw a0, 0(t0)                /* Store value at HERE*/
 	addi t0, t0, 4              /* Increment HERE... */
-	la t1, var_HERE             /* ... and store it */
-	sw t0, 0(t1)
+	sw t0, var_HERE, t1         /* ... and store it */
     ret
 
     defcode "[",1,F_IMMED,LBRAC,COMMA
@@ -805,29 +858,47 @@ _COMMA:
     sw t1, 0(t0)
     NEXT
 
-    defcode ":",1,,COLON,RBRAC
-	/* TODO */
-    NEXT
+    defword ":",1,,COLON,RBRAC
+	.int WORD		/* Get the name of the new word */
+	.int CREATE		/* CREATE the dictionary entry / header */
+	.int LIT, DOCOL, COMMA	/* Append DOCOL  (the codeword). */
+	.int LATEST, FETCH, HIDDEN /* Make the word hidden (see below for definition). */
+	.int RBRAC		/* Go into compile mode. */
+	.int EXIT		/* Return from the function. */
 
-    defcode ";",1,,SEMICOLON,COLON
-	/* TODO */
-    NEXT
+    defword ";",1,F_IMMED,SEMICOLON,COLON
+	.int LIT, EXIT, COMMA	/* Append EXIT (so the word will return). */
+	.int LATEST, FETCH, HIDDEN /* Toggle hidden flag -- unhide the word (see below for definition). */
+	.int LBRAC		/* Go back to IMMEDIATE mode. */
+	.int EXIT		/* Return from the function. */
 
 	defcode "IMMEDIATE",9,F_IMMED,IMMEDIATE,SEMICOLON
-	/* TODO */
+	lw t0, var_LATEST
+    addi t0, t0, 4
+    xori t0, t0, F_IMMED
+    sw t0, var_LATEST, t1
     NEXT
 
     defcode "HIDDEN",6,,HIDDEN,IMMEDIATE
-	/* TODO */
+    pop t0                      /* Dictionary entry */
+	addi t0, t0, 4              /* Point to length/flags byte */
+	lb t1, 0(t0)                /* Get the byte value */
+    xori t1, t1, F_HIDDEN       /* Set hidden flag */
+    sb t1, 0(t0)                /* Store it again */
     NEXT
 
-    defcode "HIDE",4,,HIDE,HIDDEN
-	/* TODO */
-    NEXT
+    defword "HIDE",4,,HIDE,HIDDEN
+    .int WORD
+    .int FIND
+    .int HIDDEN
+    .int EXIT
 
-    defcode "'",1,,TICK,HIDE
-	/* TODO */
-    NEXT
+	/* I differ from Jonesforth here in that I want my ' to work in immediate mode ;) */
+    defword "'",1,,TICK,HIDE
+    .int WORD
+    .int FIND
+    .int TCFA
+    .int EXIT
 
 	defcode "BRANCH",6,,BRANCH,TICK
 	lw t0, 0(gp)                /* Fetch offset from next instruction cell */
@@ -835,15 +906,34 @@ _COMMA:
     NEXT
 
 	defcode "0BRANCH",7,,ZBRANCH,BRANCH
-	/* TODO */
+    pop t0
+    beqz t0, code_BRANCH        /* If top of stack is 0, go to BRANCH */
+	addi gp, gp, 4              /* Skip over offset */
     NEXT
 
-	defcode "LITSTRING",9,,LITSTRING,ZBRANCH
-	/* TODO */
+	/* Jones doesn't describe this in the assembly listing, but LITSTRING is
+	followed by the length of the string and the string data in the
+	dictionary. I'll use a full cell for length, as this is what _COMMA
+	allocates. */
+    defcode "LITSTRING",9,,LITSTRING,ZBRANCH
+	lw t0, 0(gp)                /* Get the string length */
+    addi gp, gp, 4              /* Skip over the length */
+	push gp                     /* Push address of start of string on stack */
+    push t0                     /* Push the length onto the stack */
+	add gp, gp, t0              /* Skip past the string */
+    addi gp, gp, 3              /* Pad out to 4 byte boundary */
+    andi gp, gp, -3
     NEXT
 
-	defcode "TELL",4,,TELL,LITSTRING
-	/* TODO */
+	/* We don't have Linux to handle I/O for us, so we need to write to the
+	serial port ourselves. */
+    defcode "TELL",4,,TELL,LITSTRING
+	pop t0                      /* Length of string */
+	pop a0                      /* Base address of string */
+1:  call _EMIT                  /* Write a character */
+	addi a0, a0, 1              /* Advance base pointer */
+    addi t0, t0, -1             /* Decrement count */
+	bgtz t0, 1b                 /* If there are still chars, go again */
     NEXT
 
 	defword "QUIT",4,,QUIT,TELL
@@ -878,7 +968,7 @@ _COMMA:
 
 2:  /* STATE dependent behavior */
 	lw t0, var_STATE            /* Are we compiling or executing? */
-	beqz t0, 4f                 /* If interpreting, go to executor block */
+	beqz t0, 4f                 /* If interpreting, go to immmediate mode block */
 
 	/* Compilation */
     call _COMMA
@@ -888,12 +978,12 @@ _COMMA:
 
 3:  NEXT
 
-4:  /* Execution mode; expects CFA in a0 */
+4:  /* Immediate mode. Expects CFA in a0. */
 	bnez s2, 5f                 /* Literal? If so, handle it specially */
 	lw t0, 0(a0)                /* Load the codeword */
     jr t0                       /* Jump to the codeword */
 
-5:  /* Execution mode: Literals */
+5:  /* Immediate mode: Literals */
     push s1                     /* The value is a literal, just push it */
     NEXT
 
