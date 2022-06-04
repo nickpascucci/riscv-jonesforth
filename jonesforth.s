@@ -878,8 +878,9 @@ _COMMA:
     defcode "IMMEDIATE",9,F_IMMED,IMMEDIATE,SEMICOLON
     lw t0, var_LATEST
     addi t0, t0, 4
-    xori t0, t0, F_IMMED
-    sw t0, var_LATEST, t1
+    lb t1, 0(t0)
+    xori t1, t1, F_IMMED
+    sb t1, 0(t0)
     NEXT
 
     defcode "HIDDEN",6,,HIDDEN,IMMEDIATE
