@@ -1,0 +1,29 @@
+define depth
+set $depth = $sp - 0x80000200
+echo Stack depth:\ 
+print $depth
+end
+
+define tos
+x/1xw $sp - 4
+end
+
+define ntos
+x/$arg0xw $sp - (4 * $arg0)
+end
+
+define rtos
+x/1xw $tp
+end
+
+define rntos
+x/$arg0xw $tp
+end
+
+define input
+x/1s $a0
+end
+
+define symname
+info symbol *((int*) $arg0)
+end
