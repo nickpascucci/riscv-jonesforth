@@ -1,3 +1,5 @@
+# Try: make PROGRAM=jonesforth inspect
+
 .PHONY: inspect inspectall simulate size clean
 
 %.elf: %.o fe310_g002.lds
