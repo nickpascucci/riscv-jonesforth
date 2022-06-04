@@ -29,17 +29,17 @@ SECTIONS
     PROVIDE(_rodata_end = .);
   } >rom :text
 
-  .bss :{
-    PROVIDE(_bss_start = .);
-    *(.sbss .sbss.*) *(.bss .bss.*)
-    PROVIDE(_bss_end = .);
-  } >ram :bss
-
   .data : {
     PROVIDE(_data_start = .);
     *(.sdata .sdata.*) *(.data .data.*)
     PROVIDE(_data_end = .);
   } >ram :data
+
+  .bss :{
+    PROVIDE(_bss_start = .);
+    *(.sbss .sbss.*) *(.bss .bss.*)
+    PROVIDE(_bss_end = .);
+  } >ram :bss
 
   PROVIDE(_memory_start = ORIGIN(ram));
   PROVIDE(_memory_end = ORIGIN(ram) + LENGTH(ram));
