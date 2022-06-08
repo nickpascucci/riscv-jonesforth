@@ -87,18 +87,18 @@ class DictEntryDumpCmd(gdb.Command):
         next_is_lit = False
         for i in range(32):
             mem = INFERIOR.read_memory(addr, 4)
-            addr += 4
             word = int.from_bytes(mem, byteorder="little") 
             if next_is_lit:
-                words.append(f" - 0x{word:x}")
+                words.append(f" - [{addr.format_string(format='x')}] 0x{word:x}")
                 next_is_lit = False
             elif word:
                 sym = self._resolve_symbol(word)
-                words.append(f" - {sym}")
+                words.append(f" - [{addr.format_string(format='x')}] {sym}")
                 if sym.startswith("LIT in section"):
                     next_is_lit = True
             else:
                 break
+            addr += 4
         return "\n".join(words)
 
     def _resolve_symbol(self, addr):
