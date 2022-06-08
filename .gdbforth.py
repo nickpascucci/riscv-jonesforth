@@ -9,10 +9,12 @@ ARCHITECTURE = INFERIOR.architecture()
 F_IMMED = 0x80
 F_HIDDEN = 0x20
 F_LENMASK = 0x1f
+ALIGN_MASK = 0xFFFFFFFC
 
 def align(addr):
     """Adjust the given address so it is aligned to a 4-byte boundary."""
-    aligned_addr = addr.cast(ARCHITECTURE.integer_type(32, False)) + 3 & -3
+    aligned_addr = (addr.cast(ARCHITECTURE.integer_type(32, False)) + 3) & ALIGN_MASK
+    #  print(f"Aligned {addr.format_string(format='x')} to {aligned_addr.format_string(format='x')}")
     return aligned_addr
 
 
@@ -27,6 +29,7 @@ class DictEntryDumpCmd(gdb.Command):
     def _to_dfa(self, addr):
         """Find the dictionary field address for a word."""
         addr = align(addr)
+        #  print(f"Looking for DFA starting at aligned address {addr.format_string(format='x')}")
         for offset in range(64):
             # null padding should be address aligned so we will get a 0 when we hit it
             next_addr = addr - 4
@@ -34,6 +37,7 @@ class DictEntryDumpCmd(gdb.Command):
             val = int.from_bytes(bs, byteorder="little")
             #  print(f"Addr: {next_addr.format_string(format='x')} Size: {len(bs)} Val: {val}")
             if val == 0:
+                #  print(f"Found DFA starting at address {addr.format_string(format='x')}")
                 return addr
             addr = next_addr
         raise ValueError("Could not determine start of dictionary entry")
@@ -41,7 +45,9 @@ class DictEntryDumpCmd(gdb.Command):
     def _to_cfa(self, dfa):
         """Convert a dictionary field address to a code field address"""
         name_size = self._dict_entry_size(dfa)
-        return align(dfa + name_size)
+        cfa = align(dfa + name_size + 3)
+        #  print(f"DFA {dfa.format_string(format='x')} + {name_size} = {cfa.format_string(format='x')}")
+        return cfa
 
     def _dict_entry_flag_byte(self, dfa):
         b = INFERIOR.read_memory(dfa + 4, 1)[0]
@@ -107,7 +113,7 @@ class DictEntryDumpCmd(gdb.Command):
     def invoke(self, args, from_tty):
         addr = gdb.parse_and_eval(args)
 
-        types = {"int", "long", "char *", "void *"}
+        types = {"int", "long", "unsigned int", "int *", "char *", "void *"}
         if str(addr.type) not in types:
             print(f"Expected address argument of type {types}, got", str(addr.type))
             return

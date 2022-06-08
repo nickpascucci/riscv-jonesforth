@@ -826,20 +826,24 @@ _TCFA:
 
     lw a2, var_HERE             /* Next spot in memory */
 
+    /* ---- BEGIN DEBUG PADDING ---- */
     /* NOTE Add null padding to new dictionary entries for debugging */
-    sw x0, var_HERE, t0 /* Add 4 byte padding to HERE */
-    addi a2, a2, 4 
+    addi a2, a2, 3              /* Align HERE to 4 byte boundary */
+    andi a2, a2, 0xFFFFFFFC     /* Mask out lowest two bits */
+    sw x0, 0(a2)                /* Add 4 byte padding to (aligned) HERE */
+    addi a2, a2, 4              /* Advance past the padding */ 
+    /* ---- END DEBUG PADDING ---- */
 
     mv s1, a2                   /* Make a copy of HERE for later */
     lw t2, var_LATEST           /* Last defined word */
 
     sw t2, 0(a2)                /* Add the link portion to the header */
-    addi a2, a2, 4                  /* Move HERE past the link */
+    addi a2, a2, 4              /* Move HERE past the link */
     sb a0, 0(a2)                /* Write the length/flags byte */
-    addi a2, a2, 1                  /* Move HERE past the length byte */
+    addi a2, a2, 1              /* Move HERE past the length byte */
     call _CMOVE                 /* Copy the name into HERE */
-    addi a2, a2, 3                  /* Align to 4 byte boundary */
-    andi a2, a2, -3
+    addi a2, a2, 3              /* Align to 4 byte boundary */
+    andi a2, a2, 0xFFFFFFFC     /* Mask out lowest two bits */
 
     sw s1, var_LATEST, t0       /* Update LATEST to point to original HERE */
     sw a2, var_HERE, t0         /* Store updated HERE */
@@ -932,7 +936,7 @@ _COMMA:
     push t0                     /* Push the length onto the stack */
     add gp, gp, t0              /* Skip past the string */
     addi gp, gp, 3              /* Pad out to 4 byte boundary */
-    andi gp, gp, -3
+    andi a2, a2, 0xFFFFFFFC     /* Mask out lowest two bits */
     NEXT
 
     /* We don't have Linux to handle I/O for us, so we need to write to the
