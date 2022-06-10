@@ -176,8 +176,11 @@ code_\label :
     NEXT
 
     defcode "OVER",4,,OVER,DUP
-    lw t0, 4(sp)
+    pop t0
+    pop t1
+    push t1
     push t0
+    push t1
     NEXT
 
     defcode "ROT",3,,ROT,OVER
@@ -204,8 +207,10 @@ code_\label :
     NEXT
 
     defcode "2DUP",4,,TWODUP,TWODROP
-    lw t0, 0(sp)
-    lw t1, 4(sp)
+    pop t0
+    pop t1
+    push t1
+    push t0
     push t1
     push t0
     NEXT
@@ -222,33 +227,34 @@ code_\label :
     NEXT
 
     defcode "?DUP",4,,QDUP,TWOSWAP
-    lw t0, 0(sp)
-    bnez t0, 1f
+    pop t0
+    push t0
+    beqz t0, 1f
     push t0
 1:  NEXT
 
     defcode "1+",2,,INCR,QDUP
-    lw t0, 0(sp)
+    pop t0
     addi t0, t0, 1
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "1-",2,,DECR,INCR
-    lw t0, 0(sp)
+    pop t0
     addi t0, t0, -1
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "4+",2,,INCR4,DECR
-    lw t0, 0(sp)
+    pop t0
     addi t0, t0, 4
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     defcode "4-",2,,DECR4,INCR4
-    lw t0, 0(sp)
+    pop t0
     addi t0, t0, -4
-    sw t0, 0(sp)
+    push t0
     NEXT
 
     /* TODO A lot of these operations below could be made more efficient by
@@ -273,7 +279,7 @@ code_\label :
     pop t0
     pop t1
     mul t0, t0, t1
-    push t1
+    push t0
     NEXT
 
     defcode "/MOD",4,,DIVMOD,MUL
@@ -305,27 +311,27 @@ code_\label :
     defcode "=",1,,EQU,DIVMOD
     pop t0
     pop t1
-    xor t0, t0, t1
-    not t0, t0
-    push t0
+    beq t0, t1, 1f
+    li t0, 0
+    j 2f
+1:  li t0, 1
+2:  push t0
     NEXT
 
-    /* Not-equal is the same, but we do an extra inversion to ensure we get all
-    1's if the condition holds. */
     defcode "<>",2,,NEQU,EQU
     pop t0
     pop t1
-    xor t0, t0, t1
-    not t0, t0
-    not t0, t0                  /* <- Double-not */
-    push t0
+    bne t0, t1, 1f
+    li t0, 0
+    j 2f
+1:  li t0, 1
+2:  push t0
     NEXT
 
     defcode "<",1,,LT,NEQU
     pop t0                      /* b */
     pop t1                      /* a */
     slt t1, t1, t0       /* Sets t1 to 1 if t1 is less than t0 (a < b) */
-    sub t1, x0, t1       /* Little trick: -1 is all ones in two's complement, */
     push t1              /* if t1=1 this is all 1s and if t1=0 all 0's. */
     NEXT
 
@@ -333,70 +339,71 @@ code_\label :
     pop t0
     pop t1
     slt t1, t0, t1              /* Just swap the order of arguments here */
-    sub t1, x0, t1
     push t1
     NEXT
 
     defcode "<=",2,,LE,GT
     pop t0
     pop t1
-    slt t1, t0, t1
-    sub t1, x0, t1
-    not t1, t1                  /* For total order a <= b <=> ~(a > b) */
-    push t1
+    /* TODO This can almost certainly be made smaller. */
+    beq t1, t0, 1f
+    blt t1, t0, 1f
+    li t1, 0
+    j 2f
+1:  li t1, 1
+2:  push t1
     NEXT
 
     defcode ">=",2,,GE,LE
     pop t0
     pop t1
-    slt t1, t1, t0              /* Same, but with other arg order */
-    sub t1, x0, t1
-    not t1, t1
-    push t1
+    bge t1, t0, 1f
+    li t1, 0
+    j 2f
+1:  li t1, 1
+2:  push t1
     NEXT
 
     defcode "0=",2,,ZEQU,GE
     pop t0
     seqz t0, t0                 /* Sets t0 to 1 if t0 = 0 */
-    sub t0, x0, t0
     push t0
     NEXT
 
     defcode "0<>",3,,ZNEQU,ZEQU
     pop t0
     snez t0, t0
-    sub t0, x0, t0
     push t0
     NEXT
 
     defcode "0<",2,,ZLT,ZNEQU
     pop t0
     sltz t0, t0
-    sub t0, x0, t0
     push t0
     NEXT
 
     defcode "0>",2,,ZGT,ZLT
     pop t0
     sgtz t0, t0
-    sub t0, x0, t0
     push t0
     NEXT
 
     defcode "0<=",3,,ZLE,ZGT
     pop t0
-    sltz t0, t0
-    sub t0, x0, t0
-    not t0, t0
-    push t0
+    bgtz t0, 1f
+    li t0, 1
+    j 2f
+1:  li t0, 0
+2:  push t0
     NEXT
 
     defcode "0>=",3,,ZGE,ZLE
     pop t0
-    sgtz t0, t0
-    sub t0, x0, t0
-    not t0, t0
-    push t0
+    bltz t0, 1f
+    li t0, 1
+    j 2f
+1:  li t0, 0
+2:  push t0
     NEXT
 
     defcode "AND",3,,AND,ZGE
@@ -479,14 +486,14 @@ code_\label :
     NEXT
 
     defcode "C@C!",4,,CCOPY,FETCHBYTE
-    lw t1, 0(sp)                /* Destination address */
-    lw t0, 4(sp)                /* Source address */
+    pop t0                      /* Destination address */
+    pop t1                      /* Source address */
     lw t2, 0(t0)                /* Get source character */
     sw t2, 0(t1)                /* Write to destination */
     addi t1, t1, 1              /* Increment destination address */
     addi t0, t0, 1              /* Increment source address */
-    sw t1, 0(sp)                /* Update stack */
-    sw t0, 4(sp)
+    push t1
+    push t0
     NEXT
 
     defcode "CMOVE",5,,CMOVE,CCOPY
