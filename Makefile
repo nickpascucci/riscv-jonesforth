@@ -38,6 +38,9 @@ debug-forth: ${PROGRAM}.elf
 	@echo "Starting the emulator. Use 'gdb' to debug."
 	cat jonesforth.f - | qemu-system-riscv32 -machine sifive_e -nographic -kernel ${PROGRAM}.elf -S -s
 
+test-core: jonesforth.elf
+	pipenv run pytest
+
 size: ${PROGRAM}.elf
 	riscv32-size ${PROGRAM}.elf
 
