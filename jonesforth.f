@@ -303,7 +303,7 @@
 
 ( This is the underlying recursive definition of U. )
 : U.		( u -- )
-	BASE @ /MOD	( width rem quot )
+	BASE @ UM/MOD	( width rem quot )
 	?DUP IF			( if quotient <> 0 then )
 		RECURSE		( print the quotient )
 	THEN
@@ -1364,264 +1364,13 @@
 ;
 
 (
-	C STRINGS ----------------------------------------------------------------------
-
-	FORTH strings are represented by a start address and length kept on the stack or in memory.
-
-	Most FORTHs don't handle C strings, but we need them in order to access the process arguments
-	and environment left on the stack by the Linux kernel, and to make some system calls.
-
-	Operation	Input		Output		FORTH word	Notes
-	----------------------------------------------------------------------
-
-	Create FORTH string		addr len	S" ..."
-
-	Create C string			c-addr		Z" ..."
-
-	C -> FORTH	c-addr		addr len	DUP STRLEN
-
-	FORTH -> C	addr len	c-addr		CSTRING		Allocated in a temporary buffer, so
-									should be consumed / copied immediately.
-									FORTH string should not contain NULs.
-
-	For example, DUP STRLEN TELL prints a C string.
-)
-
-(
-	Z" .." is like S" ..." except that the string is terminated by an ASCII NUL character.
-
-	To make it more like a C string, at runtime Z" just leaves the address of the string
-	on the stack (not address & length as with S").  To implement this we need to add the
-	extra NUL to the string and also a DROP instruction afterwards.  Apart from that the
-	implementation just a modified S".
-)
-: Z" IMMEDIATE
-	STATE @ IF	( compiling? )
-		' LITSTRING ,	( compile LITSTRING )
-		HERE @		( save the address of the length word on the stack )
-		0 ,		( dummy length - we don't know what it is yet )
-		BEGIN
-			KEY 		( get next character of the string )
-			DUP '"' <>
-		WHILE
-			HERE @ C!	( store the character in the compiled image )
-			1 HERE +!	( increment HERE pointer by 1 byte )
-		REPEAT
-		0 HERE @ C!	( add the ASCII NUL byte )
-		1 HERE +!
-		DROP		( drop the double quote character at the end )
-		DUP		( get the saved address of the length word )
-		HERE @ SWAP -	( calculate the length )
-		4-		( subtract 4 (because we measured from the start of the length word) )
-		SWAP !		( and back-fill the length location )
-		ALIGN		( round up to next multiple of 4 bytes for the remaining code )
-		' DROP ,	( compile DROP (to drop the length) )
-	ELSE		( immediate mode )
-		HERE @		( get the start address of the temporary space )
-		BEGIN
-			KEY
-			DUP '"' <>
-		WHILE
-			OVER C!		( save next character )
-			1+		( increment address )
-		REPEAT
-		DROP		( drop the final " character )
-		0 SWAP C!	( store final ASCII NUL )
-		HERE @		( push the start address )
-	THEN
-;
-
-: STRLEN 	( str -- len )
-	DUP		( save start address )
-	BEGIN
-		DUP C@ 0<>	( zero byte found? )
-	WHILE
-		1+
-	REPEAT
-
-	SWAP -		( calculate the length )
-;
-
-: CSTRING	( addr len -- c-addr )
-	SWAP OVER	( len saddr len )
-	HERE @ SWAP	( len saddr daddr len )
-	CMOVE		( len )
-
-	HERE @ +	( daddr+len )
-	0 SWAP C!	( store terminating NUL char )
-
-	HERE @ 		( push start address )
-;
-
-(
-	THE ENVIRONMENT ----------------------------------------------------------------------
-
-	Linux makes the process arguments and environment available to us on the stack.
-
-	The top of stack pointer is saved by the early assembler code when we start up in the FORTH
-	variable S0, and starting at this pointer we can read out the command line arguments and the
-	environment.
-
-	Starting at S0, S0 itself points to argc (the number of command line arguments).
-
-	S0+4 points to argv[0], S0+8 points to argv[1] etc up to argv[argc-1].
-
-	argv[argc] is a NULL pointer.
-
-	After that the stack contains environment variables, a set of pointers to strings of the
-	form NAME=VALUE and on until we get to another NULL pointer.
-
-	The first word that we define, ARGC, pushes the number of command line arguments (note that
-	as with C argc, this includes the name of the command).
-)
-: ARGC
-	S0 @ @
-;
-
-(
-	n ARGV gets the nth command line argument.
-
-	For example to print the command name you would do:
-		0 ARGV TELL CR
-)
-: ARGV ( n -- str u )
-	1+ CELLS S0 @ +	( get the address of argv[n] entry )
-	@		( get the address of the string )
-	DUP STRLEN	( and get its length / turn it into a FORTH string )
-;
-
-(
-	ENVIRON returns the address of the first environment string.  The list of strings ends
-	with a NULL pointer.
-
-	For example to print the first string in the environment you could do:
-		ENVIRON @ DUP STRLEN TELL
-)
-: ENVIRON	( -- addr )
-	ARGC		( number of command line parameters on the stack to skip )
-	2 +		( skip command line count and NULL pointer after the command line args )
-	CELLS		( convert to an offset )
-	S0 @ +		( add to base stack address )
-;
-
-(
-	SYSTEM CALLS AND FILES  ----------------------------------------------------------------------
-
-	Miscellaneous words related to system calls, and standard access to files.
-)
-
-( BYE exits by calling the Linux exit(2) syscall. )
-: BYE		( -- )
-	0		( return code (0) )
-	SYS_EXIT	( system call number )
-	SYSCALL1
-;
-
-(
 	UNUSED returns the number of cells remaining in the user memory (data segment).
-
-	For our implementation we will use Linux brk(2) system call to find out the end
-	of the data segment and subtract HERE from it.
 )
-: GET-BRK	( -- brkpoint )
-	0 SYS_BRK SYSCALL1	( call brk(0) )
-;
-
 : UNUSED	( -- n )
-	GET-BRK		( get end of data segment according to the kernel )
+	MEM_END		( get end of data segment according to the linker )
 	HERE @		( get current position in data segment )
 	-
 	4 /		( returns number of cells )
-;
-
-(
-	MORECORE increases the data segment by the specified number of (4 byte) cells.
-
-	NB. The number of cells requested should normally be a multiple of 1024.  The
-	reason is that Linux can't extend the data segment by less than a single page
-	(4096 bytes or 1024 cells).
-
-	This FORTH doesn't automatically increase the size of the data segment "on demand"
-	(ie. when , (COMMA), ALLOT, CREATE, and so on are used).  Instead the programmer
-	needs to be aware of how much space a large allocation will take, check UNUSED, and
-	call MORECORE if necessary.  A simple programming exercise is to change the
-	implementation of the data segment so that MORECORE is called automatically if
-	the program needs more memory.
-)
-: BRK		( brkpoint -- )
-	SYS_BRK SYSCALL1
-;
-
-: MORECORE	( cells -- )
-	CELLS GET-BRK + BRK
-;
-
-(
-	Standard FORTH provides some simple file access primitives which we model on
-	top of Linux syscalls.
-
-	The main complication is converting FORTH strings (address & length) into C
-	strings for the Linux kernel.
-
-	Notice there is no buffering in this implementation.
-)
-
-: R/O ( -- fam ) O_RDONLY ;
-: R/W ( -- fam ) O_RDWR ;
-
-: OPEN-FILE	( addr u fam -- fd 0 (if successful) | c-addr u fam -- fd errno (if there was an error) )
-	-ROT		( fam addr u )
-	CSTRING		( fam cstring )
-	SYS_OPEN SYSCALL2 ( open (filename, flags) )
-	DUP		( fd fd )
-	DUP 0< IF	( errno? )
-		NEGATE		( fd errno )
-	ELSE
-		DROP 0		( fd 0 )
-	THEN
-;
-
-: CREATE-FILE	( addr u fam -- fd 0 (if successful) | c-addr u fam -- fd errno (if there was an error) )
-	O_CREAT OR
-	O_TRUNC OR
-	-ROT		( fam addr u )
-	CSTRING		( fam cstring )
-	420 -ROT	( 0644 fam cstring )
-	SYS_OPEN SYSCALL3 ( open (filename, flags|O_TRUNC|O_CREAT, 0644) )
-	DUP		( fd fd )
-	DUP 0< IF	( errno? )
-		NEGATE		( fd errno )
-	ELSE
-		DROP 0		( fd 0 )
-	THEN
-;
-
-: CLOSE-FILE	( fd -- 0 (if successful) | fd -- errno (if there was an error) )
-	SYS_CLOSE SYSCALL1
-	NEGATE
-;
-
-: READ-FILE	( addr u fd -- u2 0 (if successful) | addr u fd -- 0 0 (if EOF) | addr u fd -- u2 errno (if error) )
-	>R SWAP R>	( u addr fd )
-	SYS_READ SYSCALL3
-
-	DUP		( u2 u2 )
-	DUP 0< IF	( errno? )
-		NEGATE		( u2 errno )
-	ELSE
-		DROP 0		( u2 0 )
-	THEN
-;
-
-(
-	PERROR prints a message for an errno, similar to C's perror(3) but we don't have the extensive
-	list of strerror strings available, so all we can do is print the errno.
-)
-: PERROR	( errno addr u -- )
-	TELL
-	':' EMIT SPACE
-	." ERRNO="
-	. CR
 ;
 
 (
@@ -1777,12 +1526,24 @@ HIDE =NEXT
 )
 
 : WELCOME
+    HEX
 	S" TEST-MODE" FIND NOT IF
 		." JONESFORTH VERSION " VERSION . CR
+        ." MEMORY ENDS AT" SPACE MEM_END U. CR
+        ." HERE IS" SPACE HERE @ U. CR
 		UNUSED . ." CELLS REMAINING" CR
 		." OK "
+    DECIMAL    
 	THEN
 ;
+
+HEX
+80001F00 U. CR
+80001F01 U. CR
+80001F02 U. CR
+80001F03 U. CR
+80001F04 U. CR
+DECIMAL
 
 WELCOME
 HIDE WELCOME
