@@ -3,3 +3,7 @@
 *.o
 *.hex
 gdb.txt
+*.aux
+*.log
+*.out
+build/
