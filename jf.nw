@@ -1,6 +1,6 @@
 \documentclass{tufte-handout}
 \title{A Literate Forth for RISC-V Microcontrollers
-  \thanks{Adapted from Jonesforth for x86\_64 by Richard~W.M. Jones}}
+  \thanks{Adapted from Jonesforth for i386 Linux by Richard~W.M. Jones}}
 
 \author[Nick Pascucci]{Nick Pascucci}
 
