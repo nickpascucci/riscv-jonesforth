@@ -4,10 +4,11 @@
 
 \author[Nick Pascucci]{Nick Pascucci}
 
-%\date{28 March 2010} % without \date command, current date is supplied
+%\date{June 17, 2022} % without \date command, current date is supplied
 
 %\geometry{showframe} % display margins for debugging page layout
 
+\usepackage{csquotes} % allow for nice quotes
 \usepackage{graphicx} % allow embedded images
   \setkeys{Gin}{width=\linewidth,totalheight=\textheight,keepaspectratio}
   \graphicspath{{graphics/}} % set of paths to search for images
@@ -65,99 +66,183 @@ documentation --- which you may be reading right now --- while the \texttt{notan
 combines all the code blocks into something we can execute. The \texttt{Makefile} included with this
 repository handles the details.
 
-<<jf.s>>=
-    .set JONES_VERSION,01
+\newpage
+\section {The FE310-G002 Processor}
 
-    .set UART0_BASE_ADDR,0x10013000
+We're going to need a processor to run this thing. Forth naturally lends itself to embedded systems,
+and the specific processor I want to use is the FE310 from SiFive, Inc. The chip is essentially a
+demo of SiFive's RISC-V IP, aimed at showing that they can, in fact, make processors and that they
+do, in fact, work. As such it is a fairly basic core implementing the RV32IMAC ISA with a few
+peripherals. For our purposes the main things to keep in mind are that the core has 16kB of
+instruction cache and 16kB of data SRAM along with hardware multiplication and division.
 
-    /*
-    REGISTER MAPPING
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.5\textwidth]{redboard}
+  \caption{The SparkFun RED-V Redboard is an Arduino-alike with an FE310 as the main processor.}
+  \label{fig:redboard}
+\end{figure}
 
-    The RISC-V integer specification lays out the following registers:
+In addition to the core itself, we need a few accessories: an oscillator, a bank of durable storage
+for our program, power conditioning, and support for talking to a computer. To get these we'll use
+SparkFun's RED-V development board.
 
-    | Register | ABI Name | Description           | Saver  |
-    |----------+----------+-----------------------+--------|
-    | x0       | zero     | Zero constant         | -      |
-    | x1       | ra       | Return address        | Caller |
-    | x2       | sp       | Stack pointer         | -      |
-    | x3       | gp       | Global pointer        | -      |
-    | x4       | tp       | Thread pointer        | Callee |
-    | x5-x7    | t0-t2    | Temporaries           | Caller |
-    | x8       | s0 / fp  | Saved / frame pointer | Callee |
-    | x9       | s1       | Saved register        | Callee |
-    | x10-x11  | a0-a1    | Fn args/return values | Caller |
-    | x12-x17  | a2-a7    | Fn args               | Caller |
-    | x18-x27  | s2-s11   | Saved registers       | Callee |
-    | x28-x31  | t3-t6    | Temporaries           | Caller |
+\begin{displayquote}
+  The RED-V RedBoard comes in the familiar Arduino Uno R3 form factor and includes the SiFive
+  Freedom E310 core, 32MB of QSPI flash, an NXP K22 ARM Cortex-M4 for USB connectivity and operating
+  as a JTAG interface, and a Qwiic connector to make future I2C offerings easy.
+\end{displayquote}
 
-    Below is the mapping from the original Jonesforth registers to the RISC-V ones.
+RISC-V, like other RISC ISAs, uses a \textit{load-store architecture}. This means that the CPU can
+only operate on values that are stored in registers, and all memory access is done explicitly
+through \textit{load} and \textit{store} instructions. The ISA provides a plethora of registers to
+use --- honestly, more than we need --- as described in Table \ref{table:rv-registers}.
 
-    | x86 | RISCV   | Purpose                                |
-    |-----+---------+----------------------------------------|
-    | eax | various | RISCV allows more flexibility than x86 |
-    |     | fp      | Current codeword pointer               |
-    | esi | gp      | Next codeword pointer                  |
-    | ebp | tp      | Return stack pointer                   |
-    | esp | sp      | Data stack pointer                     |
+\begin{table}[h!]
+\begin{center}
+\begin{tabular}{ |c|c|c|c| } 
+ \hline
+     Register & ABI Name & Description           & Saver  \\
+ \hline
+     x0       & zero     & Zero constant         & -      \\
+     x1       & ra       & Return address        & Caller \\
+     x2       & sp       & Stack pointer         & -      \\
+     x3       & gp       & Global pointer        & -      \\
+     x4       & tp       & Thread pointer        & Callee \\
+     x5-x7    & t0-t2    & Temporaries           & Caller \\
+     x8       & s0 / fp  & Saved / frame pointer & Callee \\
+     x9       & s1       & Saved register        & Callee \\
+     x10-x11  & a0-a1    & Fn args/return values & Caller \\
+     x12-x17  & a2-a7    & Fn args               & Caller \\
+     x18-x27  & s2-s11   & Saved registers       & Callee \\
+     x28-x31  & t3-t6    & Temporaries           & Caller \\
+ \hline
+\end{tabular}
+\caption{The RISC-V ISA defines 32 registers by default. While most are interchangeable, the ISA
+  does suggest conventional uses for them which is reflected in the ABI name.}
+\label{table:rv-registers}
+\end{center}
+\end{table}
 
-    Note that I take some liberties with the calling conventions - for example,
-    I don't always preserve saved registers. This is a small enough program that
-    it doesn't matter much.
-    */
+Our Forth will use only a subset of the available registers. Typically, Forths implement a virtual
+machine with five "virtual registers", which we map to RISC-V registers in 
+Table \ref{table:forth-registers}.
 
-    /* TODO Investigate using compressed instruction set */
+\begin{table}[h!]
+\begin{center}
+\begin{tabular}{ |c|c|c| } 
+ \hline
+     Name & Description                         & Register \\
+ \hline
+     W    & Working register                    & fp       \\
+     X    & Working register                    & t0       \\
+     IP   & Instruction pointer                 & gp       \\
+     SP   & Data stack pointer                  & sp       \\
+     RP   & Return stack pointer                & tp       \\
+     UP   & User data pointer (unimplemented)   & n/a      \\
+ \hline
+\end{tabular}
+\caption{A typical Forth virtual machine tracks 5-6 items in registers. Brad Rodriguez's
+  \href{https://www.bradrodriguez.com/papers/moving1.htm}{\textit{Moving Forth}} series has a good
+  introduction to these.}
+\label{table:forth-registers}
+\end{center}
+\end{table}
 
-    /*
-    NEXT macro. Already we vary from Jonesforth slightly. There is not an
-    equivalent of LODSL in RISC-V's instruction set. It does provide an
-    instruction, jalr, which reads from rs1 and jumps to it (with an optional
-    offset), while storing the previous value of PC + 4 bytes into rd, however
-    this is not quite the same behavior as we want to increment our indirect
-    register.
+For the sake of keeping the code comprehensible we will aim to use the same registers consistently
+for each of these roles. IP will be mapped to \texttt{gp} SP to \texttt{sp}, RP to \texttt{tp}. The
+W and X working registers will be \texttt{fp} and \texttt{t0}, respectively. (UP is not currently
+assigned as this Forth does not currently support multitasking.)
 
-    Instead we emulate LODSL by using another addi instruction.
+How each of these registers is used in practice is deeply intertwined with the implementation of the
+Forth \textit{inner interpreter}, which we will discuss in \hyperref[sec:inner-interpreter]{a future
+section}.
 
-    This may be optimizable in the future. */
+Some operations will need to use several scratch registers; these will all be drawn from the set
+\texttt{t0-t6} so they will be obvious in the code. In addition, we will need a defined calling
+convention for assembly-language subroutines; for these, we will use the registers \texttt{a0-a7} as
+both input and output registers, hewing to the RISC-V convention. Because this code does not need to
+interface with the C ABI, we will take some liberties such as not saving the "saved" registers.
 
-    .macro NEXT
-    lw fp, 0(gp)   /* Load the jump target into fp */
-    addi gp, gp, 4 /* Increment gp, emulating LODSL to point to next word */
-    lw t0, 0(fp)   /* Load address pointed to by codeword */
-    jr t0          /* Indirect jump to the codeword pointed to by address in fp. */
+@ \section{Memory map}\label{sec:memory-map}
+
+On the RedBoard we have 16KiB of RAM and 32 MiB of flash ROM to work with. (By comparison,
+Jonesforth allocates 64 KiB.) The FE310 maps these into the address space with ROM starting at
+\texttt{0x2000\_0000} and RAM at \texttt{0x8000\_0000}. We can declare these to the linker to help
+map out our binary's layout for flashing.
+
+<<ROM and RAM declarations>>=
+  rom (irx!wa) : ORIGIN = 0x20400000, LENGTH = 0x1fc00000
+  ram (airwx)  : ORIGIN = 0x80000000, LENGTH = 0x400000
+
+@
+
+We'll also declare a few labels we can use in the assembly sources.
+
+<<Memory limits symbols>>=
+  PROVIDE(_memory_start = ORIGIN(ram));
+  PROVIDE(_memory_end = ORIGIN(ram) + LENGTH(ram));
+
+@
+
+Assembly builtin words are stored into the nonvolatile flash memory. The "data segment" goes into
+RAM. We need two regions: our return stack, which grows downwards into RAM from its start address,
+and the data stack, which grows upwards into RAM starting where the return stack ends.
+
+
+@ \subsection{Data and return stacks}\label{subsec:data-and-return-stacks}
+
+We'll restrict the return and data stacks to 512 bytes each. The user dictionary will start after
+the data stack. Unlike the original Jonesforth, we are running on bare metal and can't dynamically
+allocate more memory if we run out. Also unlike the original, this Forth will not use a buffer to
+store input as we have direct access to the hardware. Instead, we will read from the serial input
+registers; see the implementation of KEY. % TODO Crossreference words
+
+<<Stack size constants>>=
+    .set RETURN_STACK_SIZE, 512
+    .set DATA_STACK_SIZE, 512
+
+@
+
+The return stack and data stack start at the same address. We deconflict their accesses without
+wasting space by ensuring that the return stack advances its pointer before pushing data and after
+popping, and that the data stack does the opposite. Thus the starting word is part of the data
+stack.
+
+<<Stack declarations>>=
+return_stack:
+    .space RETURN_STACK_SIZE
+return_stack_top:               /* Initial top of return stack. Grows down. */
+data_stack_top:                 /* Also initial top of data stack. Grows up. */
+    .space RETURN_STACK_SIZE
+
+@
+
+<<Stack manipulation macros>>=
+    /* Pop a value from the top of the stack into a register */
+    .macro pop reg
+    addi sp, sp, -4
+    lw \reg, 0(sp)
     .endm
 
-    .macro PUSHRSP reg
-    addi tp, tp, -4             /* Move the return stack pointer up a slot */
-    sw \reg, 0(tp)              /* Store the register value into the newly allocated spot */
+    /* Push a register onto the stack */
+    .macro push reg
+    sw \reg, 0(sp)
+    addi sp, sp, 4
     .endm
 
-    .macro POPRSP reg
-    lw \reg, 0(tp)              /* Load the item on the top of the stack into reg */
-    addi tp, tp, 4              /* Move the return stack pointer one slot down */
-    .endm
+@
 
-    .text
-    .p2align 2
+@ \section{Dictionary layout}\label{sec:dictionary-layout}
 
-    .text
-    .global _start
-_start:
-    /* We use a fixed address space, unlike Jonesforth, so we don't need to allocate memory. */
-    la tp, return_stack_top     /* Load return stack address into frame pointer. */
-    la sp, data_stack_top       /* Set up stack pointer. */
-    /* HERE is assigned its initial value statically, at assembly time. */
-    la gp, cold_start           /* Get ready... */
-    NEXT                        /* Interpret! */
-
-cold_start:                     /* Startup: jump to QUIT */
-    .int QUIT
-
+<<Dictionary bitmasks>>=
     .set F_IMMED,0x80
     .set F_HIDDEN,0x20
     .set F_LENMASK,0x1f
 
-    .set name_link_base,0
+@
 
+<<defword macro>>=
     /* Define a Forth word with high-level components */
     .macro defword name, namelen, flags=0, label, prev
     .section .rodata
@@ -175,13 +260,9 @@ name_\label :
     /* Put list of word pointers after */
     .endm
 
-/*  The colon interpreter must be defined after _start for the E310 to work properly.*/
-DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
-    PUSHRSP gp         /* Push addr of next instr. at previous call level onto the r. stack */
-    addi fp, fp, 4     /* Advance fp to point to first data word in current definition */
-    mv gp, fp          /* Make the data word the "next" word to execute */
-    NEXT
+@
 
+<<defcode macro>>=
     /* Define a Forth word with assembly implementation. The in-memory layout for the word is:
 
     | 4 bytes      | 1 byte         | n bytes |
@@ -190,42 +271,47 @@ DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
     .macro defcode name, namelen, flags=0, label, prev
     .section .rodata
     .p2align 2
-    /* .global name_\label */
     .int 0 /* For debugging purposes, add null bytes between dictionary entries */
 name_\label :
     .int name_\prev
     .byte \flags+\namelen
     .ascii "\name"
     .p2align 2
-    /* .global \label */
 \label :
     .int code_\label
     .text
-    /* .global code_\label */
 code_\label :
     /* Assembly code follows; must end with NEXT */
     .endm
 
-    /*
-    The return stack and data stack start at the same address. We deconflict
-    their accesses without wasting space by ensuring that the return stack
-    advances its pointer before pushing data and after popping, and that the
-    data stack does the opposite. Thus the starting word is part of the data
-    stack.
-    */
+@
 
-    /* Pop a value from the top of the stack into a register */
-    .macro pop reg
-    addi sp, sp, -4
-    lw \reg, 0(sp)
+@ \section{The Forth Inner Interpreter}\label{sec:inner-interpreter}
+<<NEXT macro>>=
+    .macro NEXT
+    lw fp, 0(gp)   /* Load the jump target into fp */
+    addi gp, gp, 4 /* Increment gp, emulating LODSL to point to next word */
+    lw t0, 0(fp)   /* Load address pointed to by codeword */
+    jr t0          /* Indirect jump to the codeword pointed to by address in fp. */
     .endm
+    
+@
 
-    /* Push a register onto the stack */
-    .macro push reg
-    sw \reg, 0(sp)
-    addi sp, sp, 4
-    .endm
+@ \section{Executing high-level Forth words}
 
+<<Colon interpreter>>=
+DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
+    PUSHRSP gp         /* Push addr of next instr. at previous call level onto the r. stack */
+    addi fp, fp, 4     /* Advance fp to point to first data word in current definition */
+    mv gp, fp          /* Make the data word the "next" word to execute */
+    NEXT
+
+@
+
+@ \section{Words provided by the Forth kernel}\label{sec:code-words-in-kernel}
+
+@ \subsection{Stack manipulation}\label{subsec:stack-manipulation}
+<<Stack manipulation words>>=
     defcode "DROP",4,,DROP,link_base
     addi sp, sp, -4             /* Just move the stack pointer back a cell */
     NEXT
@@ -301,6 +387,11 @@ code_\label :
     push t0
 1:  NEXT
 
+@
+
+@ \section{Arithmetic}\label{subsec:arithmetic}
+
+<<Arithmetic words>>=
     defcode "1+",2,,INCR,QDUP
     pop t0
     addi t0, t0, 1
@@ -324,10 +415,6 @@ code_\label :
     addi t0, t0, -4
     push t0
     NEXT
-
-    /* TODO A lot of these operations below could be made more efficient by
-    changing the push/pop operations by avoiding manipulation of the stack
-    pointer when the stack size does not change. */
 
     defcode "+",1,,ADD,DECR4
     pop t0
@@ -368,23 +455,11 @@ code_\label :
     push t2
     NEXT
 
-    /*
-    Jonesforth uses a C-style boolean. I prefer the Forth style bitmask
-    approach, so here I take a different tack.
+@
 
-    If two bitfields are equal, then their XOR is zero. Let's check that this is
-    true with a two-bit value:
+@ \subsection{Logical and comparison words}\label{subsec:logic-words}
 
-    a/b 00 01 10 11
-    00  00 01 10 11
-    01  01 00 11 10
-    10  10 11 00 01
-    11  11 10 01 00
-
-    Given this, we can return all ones if two values are equal by taking the
-    one's complement of the XOR of the two values.
-    */
-
+<<Logic words>>=
     defcode "=",1,,EQU,UMDIVMOD
     pop t0
     pop t1
@@ -509,6 +584,109 @@ code_\label :
     not t0, t0
     push t0
     NEXT
+
+@
+
+@ \section{Interacting with the return stack}\label{subsec:return-stack}
+
+<<Return stack manipulation>>=
+    /* Push a value onto the return stack */
+    defcode ">R",2,,TOR,__F_LENMASK
+    pop t0
+    PUSHRSP t0
+    NEXT
+
+    /* Pop a value from the return stack */
+    defcode "R>",2,,FROMR,TOR
+    POPRSP t0
+    push t0
+    NEXT
+
+    /* Get the value of the return stack pointer */
+    defcode "RSP@",4,,RSPFETCH,FROMR
+    push tp
+    NEXT
+
+    /* Set the value of the return stack pointer */
+    defcode "RSP!",4,,RSPSTORE,RSPFETCH
+    pop tp
+    NEXT
+
+    defcode "RDROP",5,,RDROP,RSPSTORE
+    addi tp, tp, 4              /* Increment return stack pointer by 1 cell */
+    NEXT
+
+@
+
+@ \section{Support structures}\label{sec:support-structures}
+
+<<jf.s>>=
+    .set _VERSION,01
+
+    /* TODO Investigate using compressed instruction set */
+
+    <<NEXT macro>>
+
+    .macro PUSHRSP reg
+    addi tp, tp, -4             /* Move the return stack pointer up a slot */
+    sw \reg, 0(tp)              /* Store the register value into the newly allocated spot */
+    .endm
+
+    .macro POPRSP reg
+    lw \reg, 0(tp)              /* Load the item on the top of the stack into reg */
+    addi tp, tp, 4              /* Move the return stack pointer one slot down */
+    .endm
+
+    .text
+    .p2align 2
+
+    .text
+    .global _start
+_start:
+    /* We use a fixed address space, unlike Jonesforth, so we don't need to allocate memory. */
+    la tp, return_stack_top     /* Load return stack address into frame pointer. */
+    la sp, data_stack_top       /* Set up stack pointer. */
+    /* HERE is assigned its initial value statically, at assembly time. */
+    la gp, cold_start           /* Get ready... */
+    NEXT                        /* Interpret! */
+
+cold_start:                     /* Startup: jump to QUIT */
+    .int QUIT
+
+    <<Dictionary bitmasks>>
+
+    .set name_link_base,0
+
+    <<defword macro>>
+
+/*  The colon interpreter must be defined after _start for the E310 to work properly.*/
+    <<Colon interpreter>>
+
+    <<defcode macro>>
+
+    <<Stack manipulation macros>>
+
+    <<Stack manipulation words>>
+
+    <<Arithmetic words>>
+    /*
+    Jonesforth uses a C-style boolean. I prefer the Forth style bitmask
+    approach, so here I take a different tack.
+
+    If two bitfields are equal, then their XOR is zero. Let's check that this is
+    true with a two-bit value:
+
+    a/b 00 01 10 11
+    00  00 01 10 11
+    01  01 00 11 10
+    10  10 11 00 01
+    11  11 10 01 00
+
+    Given this, we can return all ones if two values are equal by taking the
+    one's complement of the XOR of the two values.
+    */
+
+    <<Logic words>>
 
     defcode "EXIT",4,,EXIT,INVERT
     POPRSP gp
@@ -638,7 +816,7 @@ var_\name:
     NEXT
     .endm
 
-    defconsti "VERSION",  7,,VERSION,    BASE,      JONES_VERSION
+    defconsti "VERSION",  7,,VERSION,    BASE,      _VERSION
     defconsta "S0",       2,,SZ,         VERSION,   data_stack_top
     defconsta "R0",       2,,RZ,         SZ,        return_stack_top
     defconsta "MEM_END",  7,,__MEM_END,  RZ,        _memory_end
@@ -647,38 +825,13 @@ var_\name:
     defconsti "F_HIDDEN", 8,,__F_HIDDEN, __F_IMMED, F_HIDDEN
     defconsti "F_LENMASK",9,,__F_LENMASK,__F_HIDDEN,F_LENMASK
 
-    /* We omit the Linux system call bits here. */
-
-
-    /* Push a value onto the return stack */
-    defcode ">R",2,,TOR,__F_LENMASK
-    pop t0
-    PUSHRSP t0
-    NEXT
-
-    /* Pop a value from the return stack */
-    defcode "R>",2,,FROMR,TOR
-    POPRSP t0
-    push t0
-    NEXT
-
-    /* Get the value of the return stack pointer */
-    defcode "RSP@",4,,RSPFETCH,FROMR
-    push tp
-    NEXT
-
-    /* Set the value of the return stack pointer */
-    defcode "RSP!",4,,RSPSTORE,RSPFETCH
-    pop tp
-    NEXT
-
-    defcode "RDROP",5,,RDROP,RSPSTORE
-    addi tp, tp, 4              /* Increment return stack pointer by 1 cell */
-    NEXT
+    <<Return stack manipulation>>
 
     /*************************/
     /** Input and Output    **/
     /*************************/
+
+    .set UART0_BASE_ADDR,0x10013000
 
     /* TODO Allow the user to read from either UART0 or UART1 */
     /* TODO Provide KEY? and EMIT? */
@@ -1114,25 +1267,9 @@ _FOUND:
     /*****************************************/
 
     .text
-    .set RETURN_STACK_SIZE, 512
-    .set DATA_STACK_SIZE, 512
+    <<Stack size constants>>
 
-    /* Memory layout:
-
-    We have 16KiB of memory to work with. By default, Jonesforth allocates 64 KiB :)
-
-    - Assembly builtin words are stored into the nonvolatile flash memory.
-    - The "data segment" goes into RAM, starting at 0x8000_0000. We need two regions:
-    - Our return stack, which grows downwards into RAM from its start address.
-    - The data stack, which grows upwards into RAM starting where the return stack ends.
-
-    We'll restrict the return and data stacks to 512 bytes each. The user
-    dictionary will start after the data stack. Unlike the original Jonesforth,
-    we are running on bare metal and can't dynamically allocate more memory if
-    we run out. Also unlike the original, this Forth will not use a buffer to
-    store input as we have direct access to the hardware. Instead, we will read
-    from the serial input registers. See KEY, above.
-
+    /*
     TODO The E310 supports hardware memory protection. I should use that to
     implement a canary region to protect the data segment from being overwritten
     by the data stack, and vice-versa for the end of memory.
@@ -1143,14 +1280,57 @@ _FOUND:
     /********************/
 
     .bss
-    /* Forth return stack */
     .p2align 2
-return_stack:
-    .space RETURN_STACK_SIZE
-return_stack_top:               /* Initial top of return stack. Grows down. */
-data_stack_top:                 /* Also initial top of data stack. Grows up. */
-    .space RETURN_STACK_SIZE
+    <<Stack declarations>>
 data_region_start:              /* Initial value of HERE */
+
+@
+
+<<fe310-g002.lds>>=
+OUTPUT_ARCH( "riscv" )
+
+ENTRY( _start )
+
+MEMORY
+{
+  <<ROM and RAM declarations>>
+}
+
+PHDRS
+{
+  text PT_LOAD;
+  data PT_LOAD;
+  bss PT_LOAD;
+}
+
+SECTIONS
+{
+  .text : {
+    PROVIDE(_text_start = .);
+    *(.text.init) *(.text .text.*)
+    PROVIDE(_text_end = .);
+  } >rom :text
+
+  .rodata : {
+    PROVIDE(_rodata_start = .);
+    *(.rodata .rodata.*)
+    PROVIDE(_rodata_end = .);
+  } >rom :text
+
+  .data : {
+    PROVIDE(_data_start = .);
+    *(.sdata .sdata.*) *(.data .data.*)
+    PROVIDE(_data_end = .);
+  } >ram :data
+
+  .bss :{
+    PROVIDE(_bss_start = .);
+    *(.sbss .sbss.*) *(.bss .bss.*)
+    PROVIDE(_bss_end = .);
+  } >ram :bss
+
+  <<Memory limits symbols>>
+}
 
 @
 \paragraph{Defined Chunks}\par\noindent
