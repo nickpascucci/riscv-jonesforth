@@ -6,31 +6,42 @@ PROGRAM ?= jonesforth
 .PHONY: inspect inspectall simulate simulate-forth debug debug-forth size clean
 
 build/%.elf: build/%.o build/fe310-g002.lds
+	mkdir -p build
 	riscv32-ld --build-id=none -T build/fe310-g002.lds -o $@ $<
 
 build/%.o: build/%.s
+	mkdir -p build
 	riscv32-as --march=rv32imac -mabi=ilp32 -gdwarf-5 -o $@ $<
 
 build/%.hex: build/%.elf
+	mkdir -p build
 	riscv32-objcopy $< -O ihex $@
 
 build/fe310-g002.lds: jf.nw
+	mkdir -p build
 	notangle -R$(shell basename $@) $< > $@
 
 build/jf.s: jf.nw
+	mkdir -p build
 	notangle -R$(shell basename $@) $< > $@
 
+build/tests/test_core.py: jf.nw
+	mkdir -p build/tests
+	notangle -Rtests/test_core.py $< > $@
+
 build/%.tex: %.nw
-	noweave -delay -index $< > $@
+	mkdir -p build
+	# This filter escapes underscores in chunk names so TeX is happy.
+	noweave \
+		-delay \
+		-index \
+		-filter 'sed "/^@use /s/_/\\\\_/g;/^@defn /s/_/\\\\_/g"' \
+		$< > $@
 
 build/%.pdf: build/%.tex
+	mkdir -p build
 	xelatex -halt-on-error -output-directory=build $<
 	xelatex -output-directory=build $<
-
-build/tests/test_core.py: jonesforth.md tests/test_core.py
-	verso jonesforth.md | recto build/phase1 tests/test_core.py
-	cd build/phase1 && verso ../../jonesforth.md | recto ../ tests/test_core.py
-	cp Pipfile Pipfile.lock build
 
 objdump: build/jf.elf
 	riscv32-objdump --source $<
@@ -61,13 +72,13 @@ debug-forth: build/jf.elf
 	cat jonesforth.f - | qemu-system-riscv32 -machine sifive_e -nographic -kernel $< -S -s
 
 test-core: build/tests/test_core.py build/jf.elf 
-	cd build && pipenv install && pipenv run pytest --ignore phase1
+	cd build && pipenv install && pipenv run pytest
 
 size: build/jf.elf
 	riscv32-size $<
 
 clean:
-	-rm build
+	-rm -r build
 
 install-deps:
 	tlmgr install changepage csquotes fancyhdr geometry hyperref \
