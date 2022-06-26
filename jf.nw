@@ -1336,7 +1336,16 @@ SECTIONS
 
 @ \section{Test fixture}\label{sec:test-fixture}
 
-<<tests/test_core.py>>=
+It can be challenging to test an embedded Forth, especially early in the process when there is not a
+fully functional interpreter. To work around this, we can leverage the QEMU emulator and a bit of
+Python to write a test harness for the system.
+
+This program runs the compiled Forth kernel in the emulator, sends simulated keystrokes to it, and
+then prints and checks the resulting stack picture in order to test the core words. To do so we use
+the \textit{pexpect} library, which helps manage running the child process (QEMU) and inspecting its
+output.
+
+<<tests/test-core.py>>=
 import pexpect
 import pytest
 import sys
