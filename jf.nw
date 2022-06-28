@@ -328,7 +328,7 @@ top-of-stack value as the second element:
 
 <<Test cases>>=
 ("1", "1"), # Just push the number 1 on the stack
-("1 2", "2"), # Push 1 followed by 2
+("1 2", "1 2"), # Push 1 followed by 2
 <<Elided test cases>>
 @
 
@@ -336,7 +336,7 @@ For the purposes of keeping the printed document tidy, I will place test cases i
 pretty-printed form throughout this section. The actual code is elided in the printed version of the
 file since it's so repetitive and uninteresting.
 
-\testcase{1 2}{}{2} 
+\testcase{1 2}{}{1 2} 
 
 @ \subsection{Stack manipulation}\label{subsec:stack-manipulation}
 
@@ -358,8 +358,7 @@ do so.
 
 \texttt{SWAP} swaps the order of the top two elements of the stack.
 
-\testcase{1 2}{SWAP}{1}
-\testcase{1 2}{SWAP DROP}{2}
+\testcase{1 2}{SWAP}{2 1}
 
 <<Stack manipulation words>>=
     defcode "SWAP",4,,SWAP,DROP
@@ -372,8 +371,7 @@ do so.
 
 \texttt{DUP} duplicates the top element on the stack.
 
-\testcase{1}{DUP}{1}
-\testcase{1}{DUP DROP}{1}
+\testcase{1}{DUP}{1 1}
 
 <<Stack manipulation words>>=
     defcode "DUP",3,,DUP,SWAP
@@ -385,9 +383,7 @@ do so.
 
 \texttt{OVER} pushes a copy of the second value on the stack onto the top of the stack.
 
-\testcase{1 2}{OVER}{1}
-\testcase{1 2}{OVER DROP}{2}
-\testcase{1 2}{OVER DROP DROP}{1}
+\testcase{1 2}{OVER}{1 2 1}
 
 <<Stack manipulation words>>=
 
@@ -405,9 +401,7 @@ is now the top of the stack.
 
 % TODO Diagram ROT
 
-\testcase{1 2 3}{ROT}{1}
-\testcase{1 2 3}{ROT DROP}{3}
-\testcase{1 2 3}{ROT DROP DROP}{2}
+\testcase{1 2 3}{ROT}{2 3 1}
 
 <<Stack manipulation words>>=
 
@@ -425,9 +419,7 @@ is now the top of the stack.
 \texttt{-ROT} does the opposite: it tucks the top of the stack into third place, exposing the item
 that was below it.
 
-\testcase{1 2 3}{-ROT }{2}
-\testcase{1 2 3}{-ROT DROP}{1}
-\testcase{1 2 3}{-ROT DROP DROP}{3}
+\testcase{1 2 3}{-ROT }{3 1 2}
 
 <<Stack manipulation words>>=
     defcode "-ROT",4,,NROT,ROT
@@ -455,8 +447,7 @@ that was below it.
 
 \texttt{2DUP} duplicates the top \textit{two} items of the stack.
 
-\testcase{1 2}{2DUP}{2}
-\testcase{1 2}{2DUP DROP}{1}
+\testcase{1 2}{2DUP}{1 2 1 2}
 
 <<Stack manipulation words>>=
     defcode "2DUP",4,,TWODUP,TWODROP
@@ -472,10 +463,7 @@ that was below it.
 
 \texttt{2SWAP} swaps the top pair of elements with the second pair of elements.
 
-\testcase{1 2 3 4}{2SWAP}{2}
-\testcase{1 2 3 4}{2SWAP DROP}{1}
-\testcase{1 2 3 4}{2SWAP 2DROP}{4}
-\testcase{1 2 3 4}{2SWAP 2DROP DROP}{3}
+\testcase{1 2 3 4}{2SWAP}{3 4 1 2}
 
 <<Stack manipulation words>>=
     defcode "2SWAP",5,,TWOSWAP,TWODUP
@@ -493,11 +481,8 @@ that was below it.
 
 \texttt{?DUP} duplicates the top of the stack, but only if it's not zero.
 
-\testcase{1 2}{?DUP}{2}
-\testcase{1 2}{?DUP DROP}{2}
-\testcase{1 2}{?DUP 2DROP}{1}
-\testcase{1 0}{?DUP}{0}
-\testcase{1 0}{?DUP DROP}{1}
+\testcase{1 2}{?DUP}{1 2 2}
+\testcase{1 0}{?DUP}{1 0}
 
 <<Stack manipulation words>>=
     defcode "?DUP",4,,QDUP,TWOSWAP
@@ -1681,19 +1666,21 @@ PRINT_RESULT = "48 + EMIT 126 EMIT"
 
 @
 
-We can then write an assertion routine which checks the value on the top of the stack against our
-``expected" value.
+We can then write an assertion routine which checks that the values on the top of the stack against
+our ``expected" values.
 
 <<assert_output() function>>=
-def assert_output(forth, out):
+def assert_output(forth, expected_stack):
     try:
-        forth.sendline(PRINT_RESULT)
-        forth.expect(out)
-        # Ensure that the value is fully consumed
-        forth.expect('~')
+        for item in reversed(expected_stack.split()):
+          forth.sendline(PRINT_RESULT)
+          forth.expect(item)
+          # Ensure that we only got the value we expected
+          # and no extra garbage
+          forth.expect('~')
     except:
         raise AssertionError(
-            f"Expected '{out}', got "
+            f"Expected '{expected_stack}', got "
             "'{forth.before.decode('ascii')}'")
 
 @
@@ -1717,9 +1704,6 @@ import os
 
 cases = [
     <<Test cases>>
-
-
-
 
     ("2 3 *", "6"),
 
