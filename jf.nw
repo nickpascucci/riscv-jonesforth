@@ -38,7 +38,7 @@
 % definitions as well, though they don't appear in this file explicitly.
 \newcommand{\testcase}[3]{
   \marginnote{
-    \textit{Test case:} \texttt{#1} \texttt{#2} $\rightarrow$ \texttt{#3}
+    \textit{Example:} \texttt{#1} \texttt{#2} $\rightarrow$ \texttt{#3}
   }
 }
 
@@ -356,6 +356,8 @@ do so.
     NEXT
 @
 
+\texttt{SWAP} swaps the order of the top two elements of the stack.
+
 \testcase{1 2}{SWAP}{1}
 \testcase{1 2}{SWAP DROP}{2}
 
@@ -366,12 +368,28 @@ do so.
     push t0
     push t1
     NEXT
+@
 
+\texttt{DUP} duplicates the top element on the stack.
+
+\testcase{1}{DUP}{1}
+\testcase{1}{DUP DROP}{1}
+
+<<Stack manipulation words>>=
     defcode "DUP",3,,DUP,SWAP
     pop t0
     push t0
     push t0
     NEXT
+@
+
+\texttt{OVER} pushes a copy of the second value on the stack onto the top of the stack.
+
+\testcase{1 2}{OVER}{1}
+\testcase{1 2}{OVER DROP}{2}
+\testcase{1 2}{OVER DROP DROP}{1}
+
+<<Stack manipulation words>>=
 
     defcode "OVER",4,,OVER,DUP
     pop t0
@@ -380,6 +398,18 @@ do so.
     push t0
     push t1
     NEXT
+@
+
+\texttt{ROT} ``rotates'' the three items on the top of the stack so that what was the third element
+is now the top of the stack.
+
+% TODO Diagram ROT
+
+\testcase{1 2 3}{ROT}{1}
+\testcase{1 2 3}{ROT DROP}{3}
+\testcase{1 2 3}{ROT DROP DROP}{2}
+
+<<Stack manipulation words>>=
 
     defcode "ROT",3,,ROT,OVER
     pop t0
@@ -390,6 +420,16 @@ do so.
     push t2
     NEXT
 
+@
+
+\texttt{-ROT} does the opposite: it tucks the top of the stack into third place, exposing the item
+that was below it.
+
+\testcase{1 2 3}{-ROT }{2}
+\testcase{1 2 3}{-ROT DROP}{1}
+\testcase{1 2 3}{-ROT DROP DROP}{3}
+
+<<Stack manipulation words>>=
     defcode "-ROT",4,,NROT,ROT
     pop t0
     pop t1
@@ -399,11 +439,26 @@ do so.
     push t1
     NEXT
 
+@
+
+\texttt{2DROP}, unsurprisingly, drops two elements from the top of the stack.
+
+\testcase{1 2 3}{2DROP}{1}
+
+<<Stack manipulation words>>=
     defcode "2DROP",5,,TWODROP,NROT
     pop t0
     pop t0
     NEXT
 
+@
+
+\texttt{2DUP} duplicates the top \textit{two} items of the stack.
+
+\testcase{1 2}{2DUP}{2}
+\testcase{1 2}{2DUP DROP}{1}
+
+<<Stack manipulation words>>=
     defcode "2DUP",4,,TWODUP,TWODROP
     pop t0
     pop t1
@@ -413,6 +468,16 @@ do so.
     push t0
     NEXT
 
+@
+
+\texttt{2SWAP} swaps the top pair of elements with the second pair of elements.
+
+\testcase{1 2 3 4}{2SWAP}{2}
+\testcase{1 2 3 4}{2SWAP DROP}{1}
+\testcase{1 2 3 4}{2SWAP 2DROP}{4}
+\testcase{1 2 3 4}{2SWAP 2DROP DROP}{3}
+
+<<Stack manipulation words>>=
     defcode "2SWAP",5,,TWOSWAP,TWODUP
     pop t0
     pop t1
@@ -424,6 +489,17 @@ do so.
     push t2
     NEXT
 
+@
+
+\texttt{?DUP} duplicates the top of the stack, but only if it's not zero.
+
+\testcase{1 2}{?DUP}{2}
+\testcase{1 2}{?DUP DROP}{2}
+\testcase{1 2}{?DUP 2DROP}{1}
+\testcase{1 0}{?DUP}{0}
+\testcase{1 0}{?DUP DROP}{1}
+
+<<Stack manipulation words>>=
     defcode "?DUP",4,,QDUP,TWOSWAP
     pop t0
     push t0
@@ -435,6 +511,11 @@ do so.
 
 @ \section{Arithmetic}\label{subsec:arithmetic}
 
+\texttt{1+}, as you might imagine, adds one to the value on the top of the stack.
+
+\testcase{1}{1+}{2}
+\testcase{-1}{1+}{0}
+
 <<Arithmetic words>>=
     defcode "1+",2,,INCR,QDUP
     pop t0
@@ -442,24 +523,53 @@ do so.
     push t0
     NEXT
 
+@
+
+\texttt{1-} subtracts one from the element on the top of the stack.
+
+\testcase{2}{1-}{1}
+
+<<Arithmetic words>>=
     defcode "1-",2,,DECR,INCR
     pop t0
     addi t0, t0, -1
     push t0
     NEXT
 
+@
+
+\texttt{4+} and \texttt{4-} similarly add and subtract 4; this is mostly useful for manipulating
+addresses as in a 32-bit system each word is 4 bytes.
+
+\testcase{1}{4+}{5}
+\testcase{-1}{4+}{3}
+
+<<Arithmetic words>>=
     defcode "4+",2,,INCR4,DECR
     pop t0
     addi t0, t0, 4
     push t0
     NEXT
 
+@
+
+\testcase{5}{4-}{1}
+
+<<Arithmetic words>>=
     defcode "4-",2,,DECR4,INCR4
     pop t0
     addi t0, t0, -4
     push t0
     NEXT
 
+@
+
+\texttt{+} and \texttt{-} add and subtract the two values on the top of the stack, replacing them
+with the result.
+
+\testcase{1 1}{+}{2}
+
+<<Arithmetic words>>=
     defcode "+",1,,ADD,DECR4
     pop t0
     pop t1
@@ -467,6 +577,15 @@ do so.
     push t0
     NEXT
 
+@
+
+Note that for subtraction, the top of stack value is subtracted from the next element. This is
+intuitive; if you rewrite the postfix expression $2\ 1\ -$ as the infix equivalent $2 - 1$, the
+relationship is obvious.
+
+\testcase{2 1}{-}{1}
+
+<<Arithmetic words>>=
     defcode "-",1,,SUB,ADD
     pop t0                      /* b */
     pop t1                      /* a */
@@ -474,6 +593,11 @@ do so.
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Arithmetic words>>=
     defcode "*",1,,MUL,SUB
     pop t0
     pop t1
@@ -481,6 +605,11 @@ do so.
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Arithmetic words>>=
     defcode "/MOD",4,,DIVMOD,MUL
     pop t0                      /* Divisor */
     pop t1                      /* Dividend */
@@ -490,6 +619,11 @@ do so.
     push t2
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Arithmetic words>>=
     defcode "UM/MOD",6,,UMDIVMOD,DIVMOD
     pop t0                      /* Divisor */
     pop t1                      /* Dividend */
@@ -514,6 +648,11 @@ do so.
 2:  push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "<>",2,,NEQU,EQU
     pop t0
     pop t1
@@ -524,6 +663,11 @@ do so.
 2:  push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "<",1,,LT,NEQU
     pop t0                      /* b */
     pop t1                      /* a */
@@ -531,6 +675,11 @@ do so.
     push t1              /* if t1=1 this is all 1s and if t1=0 all 0's. */
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode ">",1,,GT,LT
     pop t0
     pop t1
@@ -538,6 +687,11 @@ do so.
     push t1
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "<=",2,,LE,GT
     pop t0
     pop t1
@@ -550,6 +704,11 @@ do so.
 2:  push t1
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode ">=",2,,GE,LE
     pop t0
     pop t1
@@ -560,30 +719,55 @@ do so.
 2:  push t1
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "0=",2,,ZEQU,GE
     pop t0
     seqz t0, t0                 /* Sets t0 to 1 if t0 = 0 */
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "0<>",3,,ZNEQU,ZEQU
     pop t0
     snez t0, t0
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "0<",2,,ZLT,ZNEQU
     pop t0
     sltz t0, t0
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "0>",2,,ZGT,ZLT
     pop t0
     sgtz t0, t0
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "0<=",3,,ZLE,ZGT
     pop t0
     bgtz t0, 1f
@@ -593,6 +777,11 @@ do so.
 2:  push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "0>=",3,,ZGE,ZLE
     pop t0
     bltz t0, 1f
@@ -602,6 +791,11 @@ do so.
 2:  push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "AND",3,,AND,ZGE
     pop t0
     pop t1
@@ -609,6 +803,11 @@ do so.
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "OR",2,,OR,AND
     pop t0
     pop t1
@@ -616,6 +815,11 @@ do so.
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "XOR",3,,XOR,OR
     pop t0
     pop t1
@@ -623,6 +827,11 @@ do so.
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Logic words>>=
     defcode "INVERT",6,,INVERT,XOR
     pop t0
     not t0, t0
@@ -640,22 +849,42 @@ do so.
     PUSHRSP t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Return stack manipulation>>=
     /* Pop a value from the return stack */
     defcode "R>",2,,FROMR,TOR
     POPRSP t0
     push t0
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Return stack manipulation>>=
     /* Get the value of the return stack pointer */
     defcode "RSP@",4,,RSPFETCH,FROMR
     push tp
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Return stack manipulation>>=
     /* Set the value of the return stack pointer */
     defcode "RSP!",4,,RSPSTORE,RSPFETCH
     pop tp
     NEXT
 
+@
+
+\testcase{}{}{}
+
+<<Return stack manipulation>>=
     defcode "RDROP",5,,RDROP,RSPSTORE
     addi tp, tp, 4              /* Increment return stack pointer by 1 cell */
     NEXT
@@ -1489,47 +1718,8 @@ import os
 cases = [
     <<Test cases>>
 
-    ("1 2 OVER", "1"),
-    ("1 2 OVER DROP", "2"),
-    ("1 2 OVER DROP DROP", "1"),
 
-    ("1 2 3 ROT", "1"),
-    ("1 2 3 ROT DROP", "3"),
-    ("1 2 3 ROT DROP DROP", "2"),
 
-    ("1 2 3 -ROT", "2"),
-    ("1 2 3 -ROT DROP", "1"),
-    ("1 2 3 -ROT DROP DROP", "3"),
-
-    ("1 2 3 2DROP", "1"),
-
-    ("1 2 2DUP", "2"),
-    ("1 2 2DUP DROP", "1"),
-
-    ("1 2 3 4 2SWAP", "2"),
-    ("1 2 3 4 2SWAP DROP", "1"),
-    ("1 2 3 4 2SWAP 2DROP", "4"),
-    ("1 2 3 4 2SWAP 2DROP DROP", "3"),
-
-    ("1 2 ?DUP", "2"),
-    ("1 2 ?DUP DROP", "2"),
-    ("1 2 ?DUP 2DROP", "1"),
-    ("1 0 ?DUP", "0"),
-    ("1 0 ?DUP DROP", "1"),
-
-    ("1 1+", "2"),
-    ("-1 1+", "0"),
-
-    ("2 1-", "1"),
-
-    ("1 4+", "5"),
-    ("-1 4+", "3"),
-
-    ("5 4-", "1"),
-
-    ("1 1 +", "2"),
-
-    ("2 1 -", "1"),
 
     ("2 3 *", "6"),
 
