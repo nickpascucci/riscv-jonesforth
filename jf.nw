@@ -33,6 +33,8 @@
 \usepackage{noweb}
 \noweboptions{smallcode,longchunks}
 
+\setcounter{secnumdepth}{1} % Number sections for autoref
+
 % Define a shorthand for test cases, which shows in the margin of the woven sources.
 % A sed preprocessing step in the Makefile will generate inputs to the Python tests from these
 % definitions as well, though they don't appear in this file explicitly.
@@ -105,7 +107,7 @@ SparkFun's RED-V development board.
 RISC-V, like other RISC ISAs, uses a \textit{load-store architecture}. This means that the CPU can
 only operate on values that are stored in registers, and all memory access is done explicitly
 through \textit{load} and \textit{store} instructions. The ISA provides a plethora of registers to
-use --- honestly, more than we need --- as described in Table \ref{table:rv-registers}.
+use --- honestly, more than we need --- as described in \autoref{tab:rv-registers}.
 
 \begin{table}[h!]
 \begin{center}
@@ -129,13 +131,13 @@ use --- honestly, more than we need --- as described in Table \ref{table:rv-regi
 \end{tabular}
 \caption{The RISC-V ISA defines 32 registers by default. While most are interchangeable, the ISA
   does suggest conventional uses for them which is reflected in the ABI name.}
-\label{table:rv-registers}
+\label{tab:rv-registers}
 \end{center}
 \end{table}
 
 Our Forth will use only a subset of the available registers. Typically, Forths implement a virtual
-machine with five "virtual registers", which we map to RISC-V registers in 
-Table \ref{table:forth-registers}.
+machine with five ``virtual registers'', which we map to RISC-V registers in 
+\autoref{tab:forth-registers}.
 
 \begin{table}[h!]
 \begin{center}
@@ -154,7 +156,7 @@ Table \ref{table:forth-registers}.
 \caption{A typical Forth virtual machine tracks 5-6 items in registers. Brad Rodriguez's
   \href{https://www.bradrodriguez.com/papers/moving1.htm}{\textit{Moving Forth}} series has a good
   introduction to these.}
-\label{table:forth-registers}
+\label{tab:forth-registers}
 \end{center}
 \end{table}
 
@@ -322,7 +324,7 @@ DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
 Now we can begin to define some of the core Forth words which will be built in to the kernel. Where
 possible, for each of these definitions we will want to define some reasonable examples that we can
 use as test cases. Later on these will appear as inputs to a test program we can use to exercise the
-implementation; see section \ref{sec:test-fixture}. In the code, each test case will be a tuple with
+implementation; see \autoref{sec:test-fixture}. In the code, each test case will be a tuple with
 the initial stack contents followed by Forth words as the first element, and the resulting
 top-of-stack value as the second element:
 
@@ -331,6 +333,10 @@ top-of-stack value as the second element:
 ("1 2", "1 2"), # Push 1 followed by 2
 <<Elided test cases>>
 @
+
+% The elided tests above cause a single undefined reference error when compiling the LaTeX sources.
+% This is because the elision filter removes all the referenced code blocks but doesn't remove the
+% ref in the block above.
 
 For the purposes of keeping the printed document tidy, I will place test cases in the margin in a
 pretty-printed form throughout this section. The actual code is elided in the printed version of the
@@ -619,7 +625,9 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\texttt{UM/MOD} is similar to \texttt{/MOD}, but operates on unsigned values.
+
+\testcase{7 3}{UM/MOD}{1 2}
 
 <<Arithmetic words>>=
     defcode "UM/MOD",6,,UMDIVMOD,DIVMOD
@@ -633,7 +641,18 @@ separately. This isn't a huge issue.
 
 @
 
-@ \subsection{Logical and comparison words}\label{subsec:logic-words}
+@ \subsection{Logical and comparison words}\label{subsec:logic_words}
+
+In this section we develop the basic logical operators needed to build more complex constructions in
+high level Forth. In all of these words, note that any non-zero value is considered \textit{true},
+while zero is \textit{false}; operations like \texttt{AND} and \texttt{OR} operate bit-wise and may
+be used both for logic and for bitfield manipulation.
+
+We'll start out with \texttt{=}, which does what it says on the tin: it returns \texttt{1} if the
+two elements are equal to each other, and \texttt{0} otherwise.
+
+\testcase{1 1}{=}{1}
+\testcase{1 2}{=}{0}
 
 <<Logic words>>=
     defcode "=",1,,EQU,UMDIVMOD
@@ -648,7 +667,10 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\texttt{<>} is ``not equal'' ($\ne$), and does the opposite of \texttt{=}.
+
+\testcase{1 1}{<>}{0}
+\testcase{1 2}{<>}{1}
 
 <<Logic words>>=
     defcode "<>",2,,NEQU,EQU
@@ -663,7 +685,11 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\texttt{<}, \texttt{>}, \texttt{<=}, and \texttt{>=} are your standard partial ordering comparators.
+
+\testcase{1 2}{<}{1}
+\testcase{2 1}{<}{0}
+\testcase{2 2}{<}{0}
 
 <<Logic words>>=
     defcode "<",1,,LT,NEQU
@@ -675,7 +701,9 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\testcase{1 2}{>}{0}
+\testcase{2 1}{>}{1}
+\testcase{2 2}{>}{0}
 
 <<Logic words>>=
     defcode ">",1,,GT,LT
@@ -687,7 +715,9 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\testcase{1 2}{<=}{1}
+\testcase{2 2}{<=}{1}
+\testcase{2 1}{<=}{0}
 
 <<Logic words>>=
     defcode "<=",2,,LE,GT
@@ -704,7 +734,9 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\testcase{1 2}{>=}{0}
+\testcase{2 2}{>=}{1}
+\testcase{2 1}{>=}{1}
 
 <<Logic words>>=
     defcode ">=",2,,GE,LE
@@ -719,18 +751,24 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\texttt{0=} tests if the top-of-stack value is equal to 0. It's effectively the same as a logical
+`not'.
+
+
+\testcase{1}{0=}{0}
+\testcase{0}{0=}{1}
 
 <<Logic words>>=
     defcode "0=",2,,ZEQU,GE
     pop t0
-    seqz t0, t0                 /* Sets t0 to 1 if t0 = 0 */
+    seqz t0, t0
     push t0
     NEXT
 
 @
 
-\testcase{}{}{}
+\testcase{1}{0<>}{1}
+\testcase{0}{0<>}{0}
 
 <<Logic words>>=
     defcode "0<>",3,,ZNEQU,ZEQU
@@ -741,7 +779,12 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\texttt{0<} and \texttt{0>} provide handy comparisons for negative and positive numbers, without
+stack manipulation.
+
+\testcase{-1}{0<}{1}
+\testcase{0}{0<}{0}
+\testcase{1}{0<}{0}
 
 <<Logic words>>=
     defcode "0<",2,,ZLT,ZNEQU
@@ -752,7 +795,9 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\testcase{-1}{0>}{0}
+\testcase{0}{0>}{0}
+\testcase{1}{0>}{1}
 
 <<Logic words>>=
     defcode "0>",2,,ZGT,ZLT
@@ -763,7 +808,9 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\testcase{-1}{0<=}{1}
+\testcase{0}{0<=}{1}
+\testcase{1}{0<=}{0}
 
 <<Logic words>>=
     defcode "0<=",3,,ZLE,ZGT
@@ -777,7 +824,10 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+
+\testcase{-1}{0>=}{0}
+\testcase{0}{0>=}{1}
+\testcase{1}{0>=}{1}
 
 <<Logic words>>=
     defcode "0>=",3,,ZGE,ZLE
@@ -791,7 +841,13 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\texttt{AND} performs a bitwise ``and'' of the top two items of the stack. \texttt{OR} behaves
+similarly.
+
+\testcase{0 0}{AND}{0}
+\testcase{1 0}{AND}{0}
+\testcase{0 1}{AND}{0}
+\testcase{1 1}{AND}{1}
 
 <<Logic words>>=
     defcode "AND",3,,AND,ZGE
@@ -803,7 +859,10 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\testcase{0 0}{OR}{0}
+\testcase{1 0}{OR}{1}
+\testcase{0 1}{OR}{1}
+\testcase{1 1}{OR}{1}
 
 <<Logic words>>=
     defcode "OR",2,,OR,AND
@@ -815,7 +874,10 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\testcase{0 0}{XOR}{0}
+\testcase{1 0}{XOR}{1}
+\testcase{0 1}{XOR}{1}
+\testcase{1 1}{XOR}{0}
 
 <<Logic words>>=
     defcode "XOR",3,,XOR,OR
@@ -827,7 +889,14 @@ separately. This isn't a huge issue.
 
 @
 
-\testcase{}{}{}
+\texttt{INVERT} does a bit-wise inversion of the value on the top of the stack. Note that this is
+not the same as a logical negation; while \texttt{0 INVERT} is logically \textit{true}, \texttt{1
+INVERT} is not logically \textit{false}.
+
+\testcase{0}{INVERT}{/}
+\marginnote{(Note that in the ASCII character set, the character \texttt{/} comes before \texttt{0}
+and thus represents -1 in our output encoding. See the test fixture in
+\autoref{sec:test-fixture} for details.)}
 
 <<Logic words>>=
     defcode "INVERT",6,,INVERT,XOR
@@ -1717,72 +1786,6 @@ import os
 
 cases = [
     <<Test cases>>
-
-    ("2 3 *", "6"),
-
-    ("7 3 /MOD", "2"),
-    ("7 3 /MOD DROP", "1"),
-
-    ("1 1 =", "1"),
-    ("1 2 =", "0"),
-
-    ("1 1 <>", "0"),
-    ("1 2 <>", "1"),
-
-    ("1 2 <", "1"),
-    ("2 1 <", "0"),
-    ("2 2 <", "0"),
-
-    ("1 2 >", "0"),
-    ("2 1 >", "1"),
-    ("2 2 >", "0"),
-
-    ("1 2 >=", "0"),
-    ("2 2 >=", "1"),
-    ("2 1 >=", "1"),
-
-    ("1 2 <=", "1"),
-    ("2 2 <=", "1"),
-    ("2 1 <=", "0"),
-
-    ("1 0=", "0"),
-    ("0 0=", "1"),
-
-    ("1 0<>", "1"),
-    ("0 0<>", "0"),
-
-    ("-1 0<", "1"),
-    ("0 0<", "0"),
-    ("1 0<", "0"),
-
-    ("-1 0>", "0"),
-    ("0 0>", "0"),
-    ("1 0>", "1"),
-
-    ("-1 0<=", "1"),
-    ("0 0<=", "1"),
-    ("1 0<=", "0"),
-
-    ("-1 0>=", "0"),
-    ("0 0>=", "1"),
-    ("1 0>=", "1"),
-
-    ("0 0 AND", "0"),
-    ("1 0 AND", "0"),
-    ("0 1 AND", "0"),
-    ("1 1 AND", "1"),
-
-    ("0 0 OR", "0"),
-    ("1 0 OR", "1"),
-    ("0 1 OR", "1"),
-    ("1 1 OR", "1"),
-
-    ("0 0 XOR", "0"),
-    ("1 0 XOR", "1"),
-    ("0 1 XOR", "1"),
-    ("1 1 XOR", "0"),
-
-    ("0 INVERT", "/"),
 ]
 
 @pytest.mark.parametrize("input,output", cases)
