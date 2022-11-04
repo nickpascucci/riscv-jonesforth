@@ -78,7 +78,6 @@ _start:
     la tp, return_stack_top     /* Load return stack address into frame pointer. */
     la sp, data_stack_top       /* Set up stack pointer. */
     /* HERE is assigned its initial value statically, at assembly time. */
-
     la gp, cold_start           /* Get ready... */
     NEXT                        /* Interpret! */
 
@@ -114,7 +113,11 @@ DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
     mv gp, fp          /* Make the data word the "next" word to execute */
     NEXT
 
-    /* Define a Forth word with assembly implementation */
+    /* Define a Forth word with assembly implementation. The in-memory layout for the word is:
+
+    | 4 bytes      | 1 byte         | n bytes |
+    | Prev Pointer | Flags + Length | Name    |
+    */
     .macro defcode name, namelen, flags=0, label, prev
     .section .rodata
     .p2align 2
@@ -943,6 +946,7 @@ _COMMA:
     NEXT
 
     defcode "INTERPRET",9,,INTERPRET,QUIT
+_INTERPRET:
     call _WORD                  /* Returns a0 = pointer to word, a1 = length */
 
     mv s2, x0                   /* Set "is literal" flag to 0 */
@@ -980,7 +984,8 @@ _COMMA:
 
 4:  /* Immediate mode. Expects CFA in a0. */
     bnez s2, 5f                 /* Literal? If so, handle it specially */
-    lw t0, 0(a0)                /* Load the codeword */
+    mv fp, a0                   /* Load the current word pointer with the CFA */
+    lw t0, 0(a0)                /* Load the codeword itself as jump target */
     jr t0                       /* Jump to the codeword */
 
 5:  /* Immediate mode: Literals */
