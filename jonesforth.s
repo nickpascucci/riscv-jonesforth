@@ -295,7 +295,7 @@ code_\label :
     pop t0                      /* Divisor */
     pop t1                      /* Dividend */
     divu t2, t1, t0             /* Quotient */
-    rem t3, t1, t0              /* Remainder */
+    remu t3, t1, t0             /* Remainder */
     push t3
     push t2
     NEXT
