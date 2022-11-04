@@ -291,6 +291,15 @@ code_\label :
     push t2
     NEXT
 
+    defcode "UM/MOD",6,,UMDIVMOD,DIVMOD
+    pop t0                      /* Divisor */
+    pop t1                      /* Dividend */
+    divu t2, t1, t0             /* Quotient */
+    rem t3, t1, t0              /* Remainder */
+    push t3
+    push t2
+    NEXT
+
     /*
     Jonesforth uses a C-style boolean. I prefer the Forth style bitmask
     approach, so here I take a different tack.
@@ -308,7 +317,7 @@ code_\label :
     one's complement of the XOR of the two values.
     */
 
-    defcode "=",1,,EQU,DIVMOD
+    defcode "=",1,,EQU,UMDIVMOD
     pop t0
     pop t1
     beq t0, t1, 1f
@@ -540,11 +549,10 @@ var_\name:
     .endm
 
     defvar "STATE", 5,,STATE, CMOVE
-    defvar "HERE",  4,,HERE,  STATE, data_region_start
+    defvar "HERE",  4,,HERE,  STATE,  data_region_start
     /* NOTE: Must point to last word in builtin dict */
-    defvar "LATEST",6,,LATEST,HERE,  name_INTERPRET
-    defvar "S0",    4,,SZ,    LATEST,data_stack_top
-    defvar "BASE",  4,,BASE,  SZ,    10
+    defvar "LATEST",6,,LATEST,HERE,   name_INTERPRET
+    defvar "BASE",  4,,BASE,  LATEST, 10
 
     /* Define a constant with an immediate value */
     .macro defconsti name, namelen, flags=0, label, prev, value
@@ -563,8 +571,10 @@ var_\name:
     .endm
 
     defconsti "VERSION",  7,,VERSION,    BASE,      JONES_VERSION
-    defconsta "R0",       2,,RZ,         VERSION,   return_stack_top
-    defconsta "DOCOL",    5,,__DOCOL,    RZ,        DOCOL
+    defconsta "S0",       2,,SZ,         VERSION,   data_stack_top
+    defconsta "R0",       2,,RZ,         SZ,        return_stack_top
+    defconsta "MEM_END",  7,,__MEM_END,  RZ,        _memory_end
+    defconsta "DOCOL",    5,,__DOCOL,    __MEM_END, DOCOL
     defconsti "F_IMMED",  7,,__F_IMMED,  __DOCOL,   F_IMMED
     defconsti "F_HIDDEN", 8,,__F_HIDDEN, __F_IMMED, F_HIDDEN
     defconsti "F_LENMASK",9,,__F_LENMASK,__F_HIDDEN,F_LENMASK
@@ -944,18 +954,19 @@ _COMMA:
     push t0                     /* Push the length onto the stack */
     add gp, gp, t0              /* Skip past the string */
     addi gp, gp, 3              /* Pad out to 4 byte boundary */
-    andi a2, a2, 0xFFFFFFFC     /* Mask out lowest two bits */
+    andi gp, gp, 0xFFFFFFFC     /* Mask out lowest two bits */
     NEXT
 
     /* We don't have Linux to handle I/O for us, so we need to write to the
     serial port ourselves. */
     defcode "TELL",4,,TELL,LITSTRING
-    pop t0                      /* Length of string */
-    pop a0                      /* Base address of string */
-1:  call _EMIT                  /* Write a character */
-    addi a0, a0, 1              /* Advance base pointer */
-    addi t0, t0, -1             /* Decrement count */
-    bgtz t0, 1b                 /* If there are still chars, go again */
+    pop a1                      /* Length of string */
+    pop a2                      /* Base address of string */
+1:  lbu a0, 0(a2)               /* Read the next character */
+    call _EMIT                  /* Write a character */
+    addi a2, a2, 1              /* Advance base pointer */
+    addi a1, a1, -1             /* Decrement count */
+    bgtz a1, 1b                 /* If there are still chars, go again */
     NEXT
 
     defcode "CHAR",4,,CHAR,TELL
