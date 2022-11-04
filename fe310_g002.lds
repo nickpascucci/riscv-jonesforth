@@ -5,7 +5,7 @@ ENTRY( _start )
 MEMORY
 {
     rom (irx!wa) : ORIGIN = 0x20400000, LENGTH = 0x1fc00000
-    ram (airwx) : ORIGIN = 0x80000000, LENGTH = 0x400000
+    ram (airwx)  : ORIGIN = 0x80000000, LENGTH = 0x400000
 }
 
 PHDRS
