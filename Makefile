@@ -30,20 +30,27 @@ build/%.elf: build/%.o build/fe310-g002.lds build
 build/%.o: build/%.s build
 	riscv32-as --march=rv32imac -mabi=ilp32 -gdwarf-5 -o $@ $<
 
-build/fe310-g002.lds: jf.nw build
+build/%.nw: %.nw build
+	# Append an actual test case after uses of the '\testcase' command.
+	# This reduces duplication and ensures the test cases match what we've written in prose.
+	cat $< \
+		| sed 's/^\\testcase{\(.*\)}{\(.*\)}{\(.*\)}/&\n\n<<Elided test cases>>=\n("\1 \2", "\3"),\n@\n/' \
+		> $@
+
+build/fe310-g002.lds: build/jf.nw build
 	notangle -R$(shell basename $@) $< > $@
 
-build/jf.s: jf.nw build
+build/jf.s: build/jf.nw build
 	notangle -R$(shell basename $@) $< > $@
 
-build/tests/test_core.py: jf.nw build/tests 
+build/tests/test_core.py: build/jf.nw build/tests 
 	notangle -Rtests/test_core.py $< > $@
 
-build/%.tex: %.nw build
-	# This filter escapes underscores so TeX is happy. This may break subscripting.
+build/%.tex: build/%.nw build
 	noweave \
 		-delay \
 		-index \
+		-filter 'elide Elided*' \
 		-filter 'sed "/^@use /s/_/\\\\_/g;/^@defn /s/_/\\\\_/g;/^@xref /s/_/\\\\_/g"' \
 		$< > $@
 

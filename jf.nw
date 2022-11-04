@@ -33,6 +33,15 @@
 \usepackage{noweb}
 \noweboptions{smallcode,longchunks}
 
+% Define a shorthand for test cases, which shows in the margin of the woven sources.
+% A sed preprocessing step in the Makefile will generate inputs to the Python tests from these
+% definitions as well, though they don't appear in this file explicitly.
+\newcommand{\testcase}[3]{
+  \marginnote{
+    \textit{Test case:} \texttt{#1} \texttt{#2} $\rightarrow$ \texttt{#3}
+  }
+}
+
 \begin{document}
 
 \maketitle
@@ -310,12 +319,47 @@ DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
 
 @ \section{Words provided by the Forth kernel}\label{sec:code-words-in-kernel}
 
+Now we can begin to define some of the core Forth words which will be built in to the kernel. Where
+possible, for each of these definitions we will want to define some reasonable examples that we can
+use as test cases. Later on these will appear as inputs to a test program we can use to exercise the
+implementation; see section \ref{sec:test-fixture}. In the code, each test case will be a tuple with
+the initial stack contents followed by Forth words as the first element, and the resulting
+top-of-stack value as the second element:
+
+<<Test cases>>=
+("1", "1"), # Just push the number 1 on the stack
+("1 2", "2"), # Push 1 followed by 2
+<<Elided test cases>>
+@
+
+For the purposes of keeping the printed document tidy, I will place test cases in the margin in a
+pretty-printed form throughout this section. The actual code is elided in the printed version of the
+file since it's so repetitive and uninteresting.
+
+\testcase{1 2}{}{2} 
+
 @ \subsection{Stack manipulation}\label{subsec:stack-manipulation}
+
+The most iconic, and most commonly used, words in the Forth repertoire are \textit{stack
+manipulation} words. Because of Forth's design, it is often necessary to do some amount of
+re-arranging for elements on the data stack during processing; these provide the basic mechanisms to
+do so.
+
+\texttt{DROP} simply discards the top element from the stack.
+
+\testcase{1 2}{DROP}{1}
+
 <<Stack manipulation words>>=
     defcode "DROP",4,,DROP,link_base
-    addi sp, sp, -4             /* Just move the stack pointer back a cell */
+    /* Just move the stack pointer back a cell */
+    addi sp, sp, -4
     NEXT
+@
 
+\testcase{1 2}{SWAP}{1}
+\testcase{1 2}{SWAP DROP}{2}
+
+<<Stack manipulation words>>=
     defcode "SWAP",4,,SWAP,DROP
     pop t0
     pop t1
@@ -1368,7 +1412,10 @@ loaded and inject it into each test. Once the test completes, we terminate the p
 it.
 
 <<PyTest fixture>>=
-COMMAND = "qemu-system-riscv32 -machine sifive_e -nographic -kernel jf.elf"
+COMMAND = ("qemu-system-riscv32 "
+           "-machine sifive_e "
+           "-nographic "
+           "-kernel jf.elf")
 
 @pytest.fixture()
 def forth():
@@ -1440,13 +1487,7 @@ import os
 <<assert_output() function>>
 
 cases = [
-    ("1", "1"),
-    ("1 2", "2"),
-
-    ("1 2 DROP", "1"),
-
-    ("1 2 SWAP", "1"),
-    ("1 2 SWAP DROP", "2"),
+    <<Test cases>>
 
     ("1 2 OVER", "1"),
     ("1 2 OVER DROP", "2"),
