@@ -170,7 +170,8 @@ code_\label :
     NEXT
 
     defcode "DUP",3,,DUP,SWAP
-    lw t0, 0(sp)
+    pop t0
+    push t0
     push t0
     NEXT
 
