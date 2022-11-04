@@ -37,14 +37,14 @@ build/jf.s: jf.nw build
 	notangle -R$(shell basename $@) $< > $@
 
 build/tests/test_core.py: jf.nw build/tests 
-	notangle -Rtests/test-core.py $< > $@
+	notangle -Rtests/test_core.py $< > $@
 
 build/%.tex: %.nw build
 	# This filter escapes underscores so TeX is happy. This may break subscripting.
 	noweave \
 		-delay \
 		-index \
-		-filter 'sed "/^@use /s/_/\\\\_/g;/^@defn /s/_/\\\\_/g"' \
+		-filter 'sed "/^@use /s/_/\\\\_/g;/^@defn /s/_/\\\\_/g;/^@xref /s/_/\\\\_/g"' \
 		$< > $@
 
 build/%.pdf: build/%.tex build

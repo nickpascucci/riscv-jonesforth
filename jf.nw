@@ -1345,36 +1345,90 @@ then prints and checks the resulting stack picture in order to test the core wor
 the \textit{pexpect} library, which helps manage running the child process (QEMU) and inspecting its
 output.
 
-<<tests/test-core.py>>=
+Our tests will be quite straightforward. First, we will \textit{execute} some Forth code; next, we
+will inspect the top-of-stack value and \textit{assert} that it is what we expected.
+
+<<Generic test case>>=
+def test_expression(forth, input, output):
+    execute(forth, input)
+    assert_output(forth, output)
+
+@
+
+To make this basic structure work, we need to provide a Forth interpreter; some inputs and outputs;
+and definitions for \texttt{execute} and \texttt{assert\_output}. Let's start with the interpreter.
+
+For every test we will want to provide a clean, isolated environment. This is to prevent cross-talk
+between tests which can cause spurious failures, and make it hard to determine what the root cause
+of a failed test actually is. By far the easiest way --- though also perhaps the slowest --- is to
+create a completely new emulated CPU for each test. PyTest's fixturing support makes this simple to
+do. We simply use \texttt{pexpect} to spawn a new QEMU instance for each test with the Forth kernel
+loaded and inject it into each test. Once the test completes, we terminate the process and discard
+it.
+
+<<PyTest fixture>>=
+COMMAND = "qemu-system-riscv32 -machine sifive_e -nographic -kernel jf.elf"
+
+@pytest.fixture()
+def forth():
+    child = pexpect.spawn(COMMAND, timeout=2)
+    child.logfile = sys.stdout.buffer
+    yield child
+    child.terminate(force=True)
+
+@
+
+Our child process expects to receive keystrokes on its standard input; these are sent to the
+virtual serial port in the emulated FE310 core so that Forth can read them in \texttt{KEY}. To send
+input to the Forth system is then as easy as sending a line to \texttt{stdin} using
+\texttt{pexpect}'s API.
+
+<<execute() function>>=
+def execute(forth, input):
+    forth.sendline(input)
+
+@
+
+There is one small complication: because the system does not have all of the high-level Forth words,
+we can't rely on the '.' operator being available. Instead, to print results we make the assumption
+that all of our tests will operate on integers and that the result of a test will be a single value
+in the range 0-9. This allows us to simply add 48 to the value in order to create the corresponding
+integer ASCII character code, and emit that. (For robustness, we also append a \~ character so that
+we can ensure that we are matching the entire output.)
+
+<<ASCII conversion routine>>=
+# Convert numbers 0-9 into ASCII form and print them, followed by '~' (ASCII 126).
+PRINT_RESULT = "48 + EMIT 126 EMIT"
+
+@
+
+We can then write an assertion routine which checks the value on the top of the stack against our
+"expected" value.
+
+<<assert_output() function>>=
+def assert_output(forth, out):
+    try:
+        forth.sendline(PRINT_RESULT)
+        forth.expect(out)
+        forth.expect('~')  # Ensure that the value is fully consumed
+    except:
+        raise AssertionError(f"Expected '{out}', got '{forth.before.decode('ascii')}'")
+
+@
+
+<<tests/test_core.py>>=
 import pexpect
 import pytest
 import sys
 import os
 
-COMMAND = "qemu-system-riscv32 -machine sifive_e -nographic -kernel jf.elf"
+<<PyTest fixture>>
 
-@pytest.fixture()
-def forth():
-    print(f"setup: {os.getcwd()}")
-    child = pexpect.spawn(COMMAND, timeout=2)
-    child.logfile = sys.stdout.buffer
-    yield child
-    child.terminate(force=True)
-    print("teardown")
+<<ASCII conversion routine>>
 
-# Convert numbers 0-9 into ASCII form and print them, followed by '~' (ASCII 126).
-PRINT_RESULT = "48 + EMIT 126 EMIT"
+<<execute() function>>
 
-def execute(forth, input):
-    forth.sendline(input)
-    forth.sendline(PRINT_RESULT)
-
-def assert_output(forth, out):
-    try:
-        forth.expect(out)
-        forth.expect('~')  # Ensure that the value is fully consumed
-    except:
-        raise AssertionError(f"Expected '{out}', got '{forth.before.decode('ascii')}'")
+<<assert_output() function>>
 
 cases = [
     ("1", "1"),
@@ -1495,9 +1549,7 @@ cases = [
 ]
 
 @pytest.mark.parametrize("input,output", cases)
-def test_expression(forth, input, output):
-    execute(forth, input)
-    assert_output(forth, output)
+<<Generic test case>>
 
 @
 
