@@ -580,7 +580,9 @@ relationship is obvious.
 
 @
 
-\testcase{}{}{}
+\texttt{*} multiplies the two values on the top of the stack, replacing them with the result.
+
+\testcase{2 3}{*}{6}
 
 <<Arithmetic words>>=
     defcode "*",1,,MUL,SUB
@@ -592,7 +594,18 @@ relationship is obvious.
 
 @
 
-\testcase{}{}{}
+\texttt{/MOD} is interesting: it's a combination division and modulus operator, and it's used to
+define both of those words later in high-level Forth. It takes a divisor (i.e. the value we're
+dividing \textit{by}) at the top of the stack, with the dividend (the value we're \textit{dividing})
+below it, and leaves the remainder on top with the quotient below. So, for example, using 3 and 7 as
+examples of the divisor and dividend: $7/3=2$ while $7 \mod 3 = 1$.
+
+In i386 both results can be computed in a single instruction, but for RISC-V we need to do them
+separately. This isn't a huge issue.
+
+% TODO Compare the cycle times of i386 vs RISC-V for /MOD
+
+\testcase{7 3}{/MOD}{1 2}
 
 <<Arithmetic words>>=
     defcode "/MOD",4,,DIVMOD,MUL
