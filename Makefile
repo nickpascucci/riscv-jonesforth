@@ -5,8 +5,8 @@ PROGRAM ?= jonesforth
 
 .PHONY: inspect inspectall simulate simulate-forth debug debug-forth size clean
 
-build/%.elf: build/%.o build/fe310_g002.lds
-	riscv32-ld --build-id=none -T fe310_g002.lds -o $@ $<
+build/%.elf: build/%.o build/fe310-g002.lds
+	riscv32-ld --build-id=none -T build/fe310-g002.lds -o $@ $<
 
 build/%.o: build/%.s
 	riscv32-as --march=rv32imac -mabi=ilp32 -gdwarf-5 -o $@ $<
@@ -14,15 +14,18 @@ build/%.o: build/%.s
 build/%.hex: build/%.elf
 	riscv32-objcopy $< -O ihex $@
 
-build/fe310_g002.lds: jonesforth.md
-	verso jonesforth.md | recto build/phase1 fe310_g002.lds
-	cd build/phase1 && verso ../../jonesforth.md | recto ../ fe310_g002.lds
+build/fe310-g002.lds: jf.nw
+	notangle -R$(shell basename $@) $< > $@
 
 build/jf.s: jf.nw
-	notangle $< > $@
+	notangle -R$(shell basename $@) $< > $@
 
-build/jf.tex: jf.nw
+build/%.tex: %.nw
 	noweave -delay -index $< > $@
+
+build/%.pdf: build/%.tex
+	xelatex -halt-on-error -output-directory=build $<
+	xelatex -output-directory=build $<
 
 build/tests/test_core.py: jonesforth.md tests/test_core.py
 	verso jonesforth.md | recto build/phase1 tests/test_core.py
@@ -38,17 +41,15 @@ objdumpall: build/jf.elf
 readelf: build/jf.elf
 	riscv32-readelf -a $<
 
-render: build/jf.tex
-	xelatex -halt-on-error -output-directory=build $<
-	xelatex -output-directory=build $<
+render: build/jf.pdf
 
 simulate-core: build/jf.elf
-	@echo "Running jf in QEMU"
-	qemu-system-riscv32 -machine sifive_e -nographic -kernel ${PROGRAM}.elf
+	@echo "Running core in QEMU"
+	qemu-system-riscv32 -machine sifive_e -nographic -kernel $<
 
 simulate-forth: build/jf.elf
-	@echo "Running jf with Forth words in QEMU"
-	cat jonesforth.f - | qemu-system-riscv32 -machine sifive_e -nographic -kernel ${PROGRAM}.elf
+	@echo "Running core with Forth words in QEMU"
+	cat jonesforth.f - | qemu-system-riscv32 -machine sifive_e -nographic -kernel $<
 
 debug-core: build/jf.elf
 	@echo "Running jf in QEMU, for debugging"
@@ -56,8 +57,8 @@ debug-core: build/jf.elf
 	qemu-system-riscv32 -machine sifive_e -nographic -kernel ${PROGRAM}.elf -S -s
 
 debug-forth: build/jf.elf
-	@echo "Running jf. Use 'gdb' to debug."
-	cat jonesforth.f - | qemu-system-riscv32 -machine sifive_e -nographic -kernel ${PROGRAM}.elf -S -s
+	@echo "Running in QEMU debug mode. Use 'gdb' to debug."
+	cat jonesforth.f - | qemu-system-riscv32 -machine sifive_e -nographic -kernel $< -S -s
 
 test-core: build/tests/test_core.py build/jf.elf 
 	cd build && pipenv install && pipenv run pytest --ignore phase1
@@ -69,6 +70,6 @@ clean:
 	-rm build
 
 install-deps:
-	tlmgr install changepage fancyhdr geometry hyperref \
+	tlmgr install changepage csquotes fancyhdr geometry hyperref \
 		natbib paralist placeins ragged2e sauerj setspace \
 		textcase titlesec xcolor xifthen
