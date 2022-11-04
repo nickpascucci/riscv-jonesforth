@@ -12,6 +12,14 @@ define ntos
 x/$arg0xw $sp - (4 * $arg0)
 end
 
+define 2tos
+ntos 2
+end
+
+define 3tos
+ntos 3
+end
+
 define rtos
 x/1xw $tp
 end
@@ -26,4 +34,26 @@ end
 
 define symname
 info symbol *((int*) $arg0)
+end
+
+define var
+print (int*) var_$arg0
+end
+
+define latest
+x/1s (char*) var_LATEST+5
+end
+
+define intstate
+echo Current word:\ \n
+symname $fp
+echo Next word:\ \n
+symname $gp
+echo Latest defined word:\ \n
+latest
+end
+
+define fnext
+cont
+intstate
 end
