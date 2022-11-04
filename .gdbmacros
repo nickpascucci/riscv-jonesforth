@@ -1,5 +1,5 @@
 define depth
-  set $depth = $sp - 0x80000234
+  set $depth = $sp - 0x80000230
   echo Stack depth:\ 
   print ((int) $depth)/4
 end
