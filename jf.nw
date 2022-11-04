@@ -1809,7 +1809,7 @@ def assert_output(forth, expected_stack):
     except:
         raise AssertionError(
             f"Expected '{expected_stack}', got "
-            "'{forth.before.decode('ascii')}'")
+            f"'{forth.before.decode('ascii')}'")
 
 @
 
