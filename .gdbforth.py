@@ -13,7 +13,9 @@ ALIGN_MASK = 0xFFFFFFFC
 
 def align(addr):
     """Adjust the given address so it is aligned to a 4-byte boundary."""
-    aligned_addr = (addr.cast(ARCHITECTURE.integer_type(32, False)) + 3) & ALIGN_MASK
+    if isinstance(addr, gdb.Type):
+        addr = addr.cast(ARCHITECTURE.integer_type(32, False))
+    aligned_addr = (addr + 3) & ALIGN_MASK
     #  print(f"Aligned {addr.format_string(format='x')} to {aligned_addr.format_string(format='x')}")
     return aligned_addr
 
@@ -101,7 +103,8 @@ class DictEntryDumpCmd(gdb.Command):
                 dfa = self._to_dfa(addr)
                 size = self._dict_entry_size(dfa)
                 sym = self._dict_entry_name(dfa, size)
-            except:
+            except Exception as e:
+                print(f"Error looking up symbol in dictionary: {e}")
                 return f"<0x{addr:x}>"
         return sym
 
