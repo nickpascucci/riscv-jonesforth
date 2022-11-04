@@ -643,6 +643,21 @@ separately. This isn't a huge issue.
 
 @ \subsection{Logical and comparison words}\label{subsec:logic_words}
 
+%    Jonesforth uses a C-style boolean. I prefer the Forth style bitmask approach, but this is not
+%    yet implemented.
+%
+%    If two bitfields are equal, then their XOR is zero. Let's check that this is true with a
+%    two-bit value:
+%
+%    a/b 00 01 10 11
+%    00  00 01 10 11
+%    01  01 00 11 10
+%    10  10 11 00 01
+%    11  11 10 01 00
+%
+%    Given this, we can return all ones if two values are equal by taking the one's complement of
+%    the XOR of the two values.
+
 In this section we develop the basic logical operators needed to build more complex constructions in
 high level Forth. In all of these words, note that any non-zero value is considered \textit{true},
 while zero is \textit{false}; operations like \texttt{AND} and \texttt{OR} operate bit-wise and may
@@ -958,6 +973,136 @@ and thus represents -1 in our output encoding. See the test fixture in
 
 @
 
+@ \section{Interacting with memory}\label{sec:interacting-with-memory}
+
+\testcase{}{}{}
+
+<<Memory words>>=
+    defcode "!",1,,STORE,LIT
+    pop t1                      /* Address to store into */
+    pop t0                      /* Value to store */
+    sw t0, 0(t1)
+    NEXT
+@
+
+\testcase{}{}{}
+
+<<Memory words>>=
+
+    defcode "@",1,,FETCH,STORE
+    pop t1                      /* Address to fetch */
+    lw t0, 0(t1)                /* Read into t0 */
+    push t0                     /* Store value onto the stack */
+    NEXT
+
+@
+
+\testcase{}{}{}
+
+<<Memory words>>=
+    defcode "+!",2,,ADDSTORE,FETCH
+    pop t1                      /* Address to add to */
+    pop t0                      /* Amount to add */
+    /* RISC-V does not have an 'addl' equivalent, so we need to expand it. */
+    lw t3, 0(t1)                /* Read the value */
+    add t3, t0, t3              /* Do the add */
+    sw t3, 0(t1)                /* Write it back */
+    NEXT
+
+@
+
+\testcase{}{}{}
+
+<<Memory words>>=
+    defcode "-!",2,,SUBSTORE,ADDSTORE
+    pop t1                      /* Address to subtract to */
+    pop t0                      /* Amount to subtract */
+    lw t3, 0(t1)                /* Read the value */
+    sub t3, t0, t3              /* Do the subtraction */
+    sw t3, 0(t1)                /* Write it back */
+    NEXT
+
+@
+
+\testcase{}{}{}
+
+<<Memory words>>=
+    defcode "C!",2,,STOREBYTE,SUBSTORE
+    pop t1                      /* Address to store into */
+    pop t0                      /* Data to store there */
+    sb t0, 0(t1)
+    NEXT
+
+@
+
+\testcase{}{}{}
+
+<<Memory words>>=
+    defcode "C@",2,,FETCHBYTE,STOREBYTE
+    pop t1                      /* Address to store into */
+    mv t0, x0                   /* Clear t0 */
+    lb t0, 0(t1)                /* Fetch the byte from memory */
+    push t0                     /* Push it onto the stack */
+    NEXT
+
+@
+
+\testcase{}{}{}
+
+<<Memory words>>=
+    defcode "C@C!",4,,CCOPY,FETCHBYTE
+    pop t0                      /* Destination address */
+    pop t1                      /* Source address */
+    lw t2, 0(t0)                /* Get source character */
+    sw t2, 0(t1)                /* Write to destination */
+    addi t1, t1, 1              /* Increment destination address */
+    addi t0, t0, 1              /* Increment source address */
+    push t1
+    push t0
+    NEXT
+
+@
+
+\testcase{}{}{}
+
+<<Memory words>>=
+    defcode "CMOVE",5,,CMOVE,CCOPY
+    pop a0                      /* Length */
+    pop a2                      /* Destination address */
+    pop a1                      /* Source address */
+    call _CMOVE
+    NEXT
+
+@
+
+<<Memory words>>=
+    /*
+    Copy n characters from one buffer to another in the forwards direction.
+
+    INPUTS
+    a0 - Length, in bytes
+    a1 - Source address
+    a2 - Destination address
+
+    INTERMEDIATES
+    t0 - Current byte scratch
+
+    OUTPUTS
+    None.
+    */
+
+_CMOVE:
+1:  beqz a0, 2f                 /* If count is 0, break */
+    lb t0, 0(a1)                /* Copy byte at source into dest */
+    sb t0, 0(a2)
+    addi a0, a0, -1             /* Decrement count */
+    addi a1, a1, 1              /* Increment source */
+    addi a2, a2, 1              /* Increment dest */
+    j 1b                        /* Go around again */
+2:  ret
+
+@
+
 @ \section{Support structures}\label{sec:support-structures}
 
 <<jf.s>>=
@@ -1009,22 +1154,6 @@ cold_start:                     /* Startup: jump to QUIT */
     <<Stack manipulation words>>
 
     <<Arithmetic words>>
-    /*
-    Jonesforth uses a C-style boolean. I prefer the Forth style bitmask
-    approach, so here I take a different tack.
-
-    If two bitfields are equal, then their XOR is zero. Let's check that this is
-    true with a two-bit value:
-
-    a/b 00 01 10 11
-    00  00 01 10 11
-    01  01 00 11 10
-    10  10 11 00 01
-    11  11 10 01 00
-
-    Given this, we can return all ones if two values are equal by taking the
-    one's complement of the XOR of the two values.
-    */
 
     <<Logic words>>
 
@@ -1038,90 +1167,7 @@ cold_start:                     /* Startup: jump to QUIT */
     push t0
     NEXT
 
-    defcode "!",1,,STORE,LIT
-    pop t1                      /* Address to store into */
-    pop t0                      /* Value to store */
-    sw t0, 0(t1)
-    NEXT
-
-    defcode "@",1,,FETCH,STORE
-    pop t1                      /* Address to fetch */
-    lw t0, 0(t1)                /* Read into t0 */
-    push t0                     /* Store value onto the stack */
-    NEXT
-
-    defcode "+!",2,,ADDSTORE,FETCH
-    pop t1                      /* Address to add to */
-    pop t0                      /* Amount to add */
-    /* RISC-V does not have an 'addl' equivalent, so we need to expand it. */
-    lw t3, 0(t1)                /* Read the value */
-    add t3, t0, t3              /* Do the add */
-    sw t3, 0(t1)                /* Write it back */
-    NEXT
-
-    defcode "-!",2,,SUBSTORE,ADDSTORE
-    pop t1                      /* Address to subtract to */
-    pop t0                      /* Amount to subtract */
-    lw t3, 0(t1)                /* Read the value */
-    sub t3, t0, t3              /* Do the subtraction */
-    sw t3, 0(t1)                /* Write it back */
-    NEXT
-
-    defcode "C!",2,,STOREBYTE,SUBSTORE
-    pop t1                      /* Address to store into */
-    pop t0                      /* Data to store there */
-    sb t0, 0(t1)
-    NEXT
-
-    defcode "C@",2,,FETCHBYTE,STOREBYTE
-    pop t1                      /* Address to store into */
-    mv t0, x0                   /* Clear t0 */
-    lb t0, 0(t1)                /* Fetch the byte from memory */
-    push t0                     /* Push it onto the stack */
-    NEXT
-
-    defcode "C@C!",4,,CCOPY,FETCHBYTE
-    pop t0                      /* Destination address */
-    pop t1                      /* Source address */
-    lw t2, 0(t0)                /* Get source character */
-    sw t2, 0(t1)                /* Write to destination */
-    addi t1, t1, 1              /* Increment destination address */
-    addi t0, t0, 1              /* Increment source address */
-    push t1
-    push t0
-    NEXT
-
-    defcode "CMOVE",5,,CMOVE,CCOPY
-    pop a0                      /* Length */
-    pop a2                      /* Destination address */
-    pop a1                      /* Source address */
-    call _CMOVE
-    NEXT
-
-    /*
-    Copy n characters from one buffer to another in the forwards direction.
-
-    INPUTS
-    a0 - Length, in bytes
-    a1 - Source address
-    a2 - Destination address
-
-    INTERMEDIATES
-    t0 - Current byte scratch
-
-    OUTPUTS
-    None.
-    */
-
-_CMOVE:
-1:  beqz a0, 2f                 /* If count is 0, break */
-    lb t0, 0(a1)                /* Copy byte at source into dest */
-    sb t0, 0(a2)
-    addi a0, a0, -1             /* Decrement count */
-    addi a1, a1, 1              /* Increment source */
-    addi a2, a2, 1              /* Increment dest */
-    j 1b                        /* Go around again */
-2:  ret
+    <<Memory words>>
 
     .macro defvar name, namelen, flags=0, label, prev, initial=0
     defcode \name, \namelen, \flags, \label, \prev
