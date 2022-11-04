@@ -47,7 +47,7 @@ class DictEntryDumpCmd(gdb.Command):
     def _to_cfa(self, dfa):
         """Convert a dictionary field address to a code field address"""
         name_size = self._dict_entry_size(dfa)
-        cfa = align(dfa + name_size + 3)
+        cfa = align(dfa + name_size + 4)
         #  print(f"DFA {dfa.format_string(format='x')} + {name_size} = {cfa.format_string(format='x')}")
         return cfa
 
@@ -98,15 +98,20 @@ class DictEntryDumpCmd(gdb.Command):
     def _resolve_symbol(self, addr):
         """Resolve the name of the symbol at ADDR"""
         sym = gdb.execute(f"info symbol 0x{addr:x}", False, True).strip()
-        if "No symbol matches" in sym:
+        if "No symbol matches" not in sym:
+            return sym
+        else:
             try:
                 dfa = self._to_dfa(addr)
                 size = self._dict_entry_size(dfa)
                 sym = self._dict_entry_name(dfa, size)
+                return sym
             except Exception as e:
                 print(f"Error looking up symbol in dictionary: {e}")
-                return f"<0x{addr:x}>"
-        return sym
+                if isinstance(addr, gdb.Type):
+                    return addr.format_string(format='x')
+                else:
+                    return f"<0x{addr:x}>"
 
     def complete(self, text, word):
         # We expect the argument passed to be a symbol so fallback to the
