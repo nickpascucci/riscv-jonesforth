@@ -136,9 +136,9 @@
 \ the address of the 0BRANCH on the stack.  Later when we see THEN, we pop that address
 \ off the stack, calculate the offset, and back-fill the offset.
 : IF IMMEDIATE
-	' 0BRANCH ,	\ compile 0BRANCH
-	HERE @		\ save location of the offset on the stack
-	0 ,		\ compile a dummy offset
+	' 0BRANCH ,	 \ compile 0BRANCH
+	HERE @		 \ save location of the offset on the stack
+	3133284096 , \ compile a dummy offset (0xBAC2IF00)
 ;
 
 : THEN IMMEDIATE
@@ -148,11 +148,11 @@
 ;
 
 : ELSE IMMEDIATE
-	' BRANCH ,	\ definite branch to just over the false-part
-	HERE @		\ save location of the offset on the stack
-	0 ,		\ compile a dummy offset
-	SWAP		\ now back-fill the original (IF) offset
-	DUP		\ same as for THEN word above
+	' BRANCH ,	 \ definite branch to just over the false-part
+	HERE @		 \ save location of the offset on the stack
+	3133333854 , \ compile a dummy offset (0xBAC2E15E)
+	SWAP		 \ now back-fill the original (IF) offset
+	DUP		     \ same as for THEN word above
 	HERE @ SWAP -
 	SWAP !
 ;
@@ -186,9 +186,9 @@
 \	where OFFSET points back to condition (the beginning) and OFFSET2 points to after the whole piece of code
 \ So this is like a while (condition) { loop-part } loop in the C language
 : WHILE IMMEDIATE
-	' 0BRANCH ,	\ compile 0BRANCH
-	HERE @		\ save location of the offset2 on the stack
-	0 ,		\ compile a dummy offset2
+	' 0BRANCH ,	 \ compile 0BRANCH
+	HERE @		 \ save location of the offset2 on the stack
+	3133280265 , \ compile a dummy offset2 (0xBAC21009)
 ;
 
 : REPEAT IMMEDIATE
