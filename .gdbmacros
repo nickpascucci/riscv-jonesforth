@@ -1,59 +1,76 @@
 define depth
-set $depth = $sp - 0x80000200
-echo Stack depth:\ 
-print $depth
+  set $depth = $sp - 0x80000234
+  echo Stack depth:\ 
+  print ((int) $depth)/4
 end
 
 define tos
-x/1xw $sp - 4
+  x/1xw $sp - 4
 end
 
 define ntos
-x/$arg0xw $sp - (4 * $arg0)
+  x/$arg0xw $sp - (4 * $arg0)
 end
 
 define 2tos
-ntos 2
+  ntos 2
 end
 
 define 3tos
-ntos 3
+  ntos 3
 end
 
 define rtos
-x/1xw $tp
+  x/1xw $tp
 end
 
 define rntos
-x/$arg0xw $tp
+  x/$arg0xw $tp
 end
 
 define input
-x/1s $a0
+  printf "Input buffer: "
+  print_len $a0 $a1
+end
+
+define found_word
+  printf "Found word: "
+  print_len $s1 $a1
 end
 
 define symname
-info symbol *((int*) $arg0)
+  info symbol *((int*) $arg0)
 end
 
 define var
-print (int*) var_$arg0
+  print (int*) var_$arg0
+end
+
+define name
+  x/1s (char*) $arg0+5
 end
 
 define latest
-x/1s (char*) var_LATEST+5
+  printf "Latest defined word: "
+  name var_LATEST
+end
+
+define flagstate
+  printf "Compiling? "
+  print (int) var_STATE
 end
 
 define intstate
-echo Current word:\ \n
-symname $fp
-echo Next word:\ \n
-symname $gp
-echo Latest defined word:\ \n
-latest
+  echo Current word:\n
+  symname $fp
+  echo Next word:\n
+  symname $gp
+  latest
+  flagstate
+  found_word
 end
 
 define fnext
-cont
-intstate
+  cont
+  intstate
 end

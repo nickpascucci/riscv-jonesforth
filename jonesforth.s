@@ -95,6 +95,7 @@ cold_start:                     /* Startup: jump to QUIT */
     .section .rodata
     .p2align 2
     .global name_\label
+    .int 0 /* For debugging purposes, add null bytes between dictionary entries */ 
 name_\label :
     .int name_\prev             /* Link to previous word */
     .byte \flags+\namelen
@@ -122,6 +123,7 @@ DOCOL:                 /* Colon interpreter. See jonesforth.s:501 */
     .section .rodata
     .p2align 2
     /* .global name_\label */
+    .int 0 /* For debugging purposes, add null bytes between dictionary entries */
 name_\label :
     .int name_\prev
     .byte \flags+\namelen
@@ -823,6 +825,11 @@ _TCFA:
     pop a1                      /* Address of name */
 
     lw a2, var_HERE             /* Next spot in memory */
+
+    /* NOTE Add null padding to new dictionary entries for debugging */
+    sw x0, var_HERE, t0 /* Add 4 byte padding to HERE */
+    addi a2, a2, 4 
+
     mv s1, a2                   /* Make a copy of HERE for later */
     lw t2, var_LATEST           /* Last defined word */
 
@@ -897,12 +904,11 @@ _COMMA:
     .int HIDDEN
     .int EXIT
 
-    /* I differ from Jonesforth here in that I want my ' to work in immediate mode ;) */
-    defword "'",1,,TICK,HIDE
-    .int WORD
-    .int FIND
-    .int TCFA
-    .int EXIT
+    defcode "'",1,,TICK,HIDE
+    lw fp, 0(gp)   /* Get address of next word, and skip it. */
+    addi gp, gp, 4
+    push fp        /* Push that address on the stack. */
+    NEXT
 
     defcode "BRANCH",6,,BRANCH,TICK
     lw t0, 0(gp)                /* Fetch offset from next instruction cell */
@@ -940,7 +946,19 @@ _COMMA:
     bgtz t0, 1b                 /* If there are still chars, go again */
     NEXT
 
-    defword "QUIT",4,,QUIT,TELL
+    defcode "CHAR",4,,CHAR,TELL
+    call _WORD   /* Returns a0 = pointer to word, a1 = length */
+    mv t1, x0
+    lb t1, 0(a0) /* Get first character of word */
+    push t1      /* Push it onto the stack. */
+    NEXT
+
+    defcode "EXECUTE",7,,EXECUTE,CHAR
+    pop fp /* Get execution token into current word pointer */
+    jr fp  /* and jump to it. */
+           /* After xt runs its NEXT will continue executing the current word. */
+
+    defword "QUIT",4,,QUIT,EXECUTE
     .int RZ,RSPSTORE
     .int INTERPRET
     .int BRANCH,-8
@@ -951,11 +969,14 @@ _INTERPRET:
     call _WORD                  /* Returns a0 = pointer to word, a1 = length */
 
     mv s2, x0                   /* Set "is literal" flag to 0 */
-    mv s1, a0                   /* Save address of word */
+    /* TODO Can we keep this data in a different reg for debugging? */
+    mv s1, a0                   /* Save address of word */ 
+    mv a3, a0                   /* Save address of word for debugging */ 
     call _FIND                  /* Returns a0 = address of dictionary entry or 0 */
     beqz a0, 1f                 /* If 0, no entry found */
 
     /* Case: Found entry in dictionary. Register a0 contains the address. */
+_FOUND:
     lb s1, 4(a0)                /* Dictionary length + flags byte */
     call _TCFA                  /* Convert dictionary entry to code field address in a0 */
     andi s1, s1, F_IMMED        /* Check if IMMED flag is set */
